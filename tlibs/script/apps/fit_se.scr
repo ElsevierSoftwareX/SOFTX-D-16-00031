@@ -1,0 +1,255 @@
+#!./hermelin
+# Spin-echo fitting routines
+# @author tw
+# @date oct-2015
+
+
+module_init()
+{
+	import("apps/instr.scr");
+	import("apps/fit.scr");
+	import("apps/gplchars.scr");
+
+	global hbar_mueVps = hbar_eVs * 1e6 * 1e12;
+	global tempvar = "TT";
+}
+
+
+# -----------------------------------------------------------------------------
+
+# omega = phi / tau
+phi2dE(phi, tau)
+{ 
+	return phi*hbar_mueVps / tau;
+}
+
+# -----------------------------------------------------------------------------
+
+sesine_model(x, amp, freq, phase, offs)
+{
+	return amp*sin(freq*x + phase) + offs;
+}
+
+seexp_model(tau, gamma, P0)
+{
+	return P0*exp(-gamma*tau / hbar_mueVps);
+}
+
+
+fit_sesine(x, y, yerr, thefreq=-1.)
+{
+	xmin = min(x); xmax = max(x);
+	ymin = min(y); ymax = max(y);
+	xrange = xmax-xmin; yrange = ymax-ymin;
+	ymid = 0.5*yrange + ymin;
+
+	if(thefreq < 0.)
+	{
+		thefreq = 2.*pi / xrange;
+		print("Using frequency: " + thefreq);
+	}
+
+	hints = [ymax-ymid, thefreq, 0., ymid];
+	hints_err = [0.1*hints[0], 0.1*hints[1], pi, 0.1*hints[2]];
+
+	thefit = fit("sesine_model", x, y, yerr,
+		["hints" : hints, "hints_errors" : hints_err,
+		"fixed" : ["freq"],
+		"debug" : fit_dbg]);
+
+	#print("sesine fit: " + str(thefit));
+
+	A = thefit["amp"][0]; dA = thefit["amp"][1];
+	O = thefit["offs"][0]; dO = thefit["offs"][1];
+	ph = thefit["phase"][0]; dph = thefit["phase"][1];
+
+	P = A/O;
+	dP = sqrt((dA/O)^2. + (A*dO/(O^2.))^2.);
+
+	return [[P, dP, ph, dph], 
+		fit_points(thefit, xmin, xmax, 128)];
+}
+
+fit_seexp(tau, P, Perr, P0=-1.)
+{
+	if(P0 >= 0.)
+	{
+		fixed_P0 = 1;
+	}
+	else
+	{
+		fixed_P0 = 0;
+		P0 = 1.;
+	}
+
+	fitmap = map();
+	fitmap["hints"] = [200., P0];
+	fitmap["hints_errors"] = [100., 0.2];
+	fitmap["debug"] = fit_dbg;
+	if(fixed_P0) 
+		fitmap["fixed"] = ["P0"];
+
+	thefit = fit("seexp_model", tau, P, Perr, fitmap);
+
+	G = thefit["gamma"][0]; dG = thefit["gamma"][1];
+	P0 = thefit["P0"][0]; dP0 = thefit["P0"][1];
+
+	return [[G, dG, P0, dP0], fit_points(thefit, 0., max(tau)+1., 128)];
+}
+
+# -----------------------------------------------------------------------------
+
+
+do_seseries(files, taus, P0s=[], freqs=[], outdir="tmp", P0max=1.)
+{
+	phs = []; ph_errs = [];
+	Ps = []; P_errs = [];
+	Tm = []; Ts = [];
+
+	for(curfile : zip(files, taus))
+	{
+		tau = curfile[1];
+		print("Processing file(s): " + str(curfile[0]) + " with tau = " + tau + " ps.");
+
+		freq = -1.;
+		if(length(freqs) > 0)
+		{
+			freq = freqs[cur_iter(curfile)];
+			print("Using supplied frequency of " + freq + ".");
+		}
+		P0 = 1.;
+		if(length(P0s) > 0)
+		{
+			P0 = P0s[cur_iter(curfile)];
+			print("Using supplied P0 of " + P0 + ".");
+		}
+
+
+		[instr, dat_x, dat_y, dat_yerr, xlab, ylab] = load_instr(curfile[0]);
+
+		temp = get_col_mean(instr, tempvar);
+		append(Tm, temp[0]); append(Ts, temp[1]);
+		print("T = " + temp[0] + " +- " + temp[1]);
+
+
+		[[P, dP, ph, dph], [xfine, yfit]] = fit_sesine(dat_x, dat_y, dat_yerr, freq);
+		print("P = " + P + " +- " + dP);
+		P /= P0; dP /= P0;
+		print("Pnorm = " + P + " +- " + dP);
+		print("ph = " + (ph/pi*180.) + " +- " + (dph/pi*180.));
+
+		rangex = max(dat_x) - min(dat_x);
+		xlims = (min(dat_x)-rangex*0.05) + " " + (max(dat_x)+rangex*0.05);
+		ylims = "0 " + str(max(dat_y)+max(dat_yerr)*2.);
+
+		sintitle = "{/Symbol t} = " + tau + " ps" + 
+			", P = " + P + " " + gpl_pm + " " + dP + 
+			", {/Symbol f} = " + (ph/pi*180.) + gpl_deg + " " + gpl_pm + " " + (dph/pi*180.) + gpl_deg;
+		plot([[dat_x, dat_y, dat_yerr, ["style" : "points", "size" : size_pts]],
+			[xfine, yfit, ["style" : "line", "size" : size_lines]]], 
+			["title" : sintitle, "xlabel" : xlab, "ylabel" : ylab, 
+			"xlimits" : xlims, "ylimits" : ylims,
+			"outfile" : outdir + "/" + tau + ".pdf",
+			"term" : theterm]);
+
+
+		append(Ps, P); append(P_errs, dP);
+		append(phs, ph); append(ph_errs, dph);
+
+		print("-"*80);
+		#sleep(1000.);
+	}
+
+
+	[[G, dG, P0, dP0], [taus_fine, pol_fit]] = fit_seexp(taus, Ps, P_errs, P0max);
+
+	T = mean(Tm);
+	exptitle = "T = " + T + " K, ";
+	exptitle += "{/Symbol G} = " + G + " {/Symbol m}eV " + gpl_pm + " " + abs(dG) + " {/Symbol m}eV";
+	plot([taus, Ps, P_errs, ["style":"points", "size" : size_pts]], 
+		[taus_fine, pol_fit, ["style":"line", "size" : size_lines]],
+		["xlabel" : "{/Symbol t} (ps)", "ylabel" : "Polarisation", "title" : exptitle, 
+		"xlimits" : "0 " + (max(taus)+1.), "ylimits" : "0 0.75",
+		"outfile" : outdir + "/gamma.pdf",
+		"term" : theterm]);
+
+	return [G, dG];
+}
+
+
+do_Eshiftseries(files, tau, tempcol, Eoffs=0., freqs=[], outdir="tmp")
+{
+	phs = []; ph_errs = [];
+	Es = []; E_errs = [];
+	Ps = []; P_errs = [];
+	Ts = []; T_errs = [];
+
+	for(curfile : files)
+	{
+		print("Processing file: " + curfile + " with tau = " + tau + " ps.");
+
+                freq = -1.;
+		if(length(freqs) > 0.)
+		{
+			freq = freqs[cur_iter(curfile)];
+			print("Using supplied frequency of " + freq + ".");
+		}
+
+		[instr, dat_x, dat_y, dat_yerr, xlab, ylab] = load_instr(curfile);
+
+		[T, dT] = get_col_mean(instr, tempcol);
+		Ts[length(Ts)] = T; T_errs[length(T_errs)] = dT;
+
+		[[P, dP, ph, dph], [xfine, yfit]] = fit_sesine(dat_x, dat_y, dat_yerr, freq);
+		print("P = " + P + " +- " + dP);
+		print("ph = " + (ph/pi*180.) + " +- " + (dph/pi*180.));
+
+		rangex = max(dat_x) - min(dat_x);
+		xlims = (min(dat_x)-rangex*0.05) + " " + (max(dat_x)+rangex*0.05);
+		ylims = "0 " + str(max(dat_y)+max(dat_yerr)*2.);
+
+		sintitle = "{/Symbol t} = " + tau + 
+			", P = " + P + " " + gpl_pm + " " + dP + 
+			", {/Symbol f} = " + (ph/pi*180.) + gpl_deg + " " + gpl_pm + " " + (dph/pi*180.) + gpl_deg;
+		plot([[dat_x, dat_y, dat_yerr, ["style" : "points", "size" : size_pts]],
+			[xfine, yfit, ["style" : "line", "size" : size_lines]]], 
+			["title" : sintitle, "xlabel" : xlab, "ylabel" : ylab, 
+			"xlimits" : xlims, "ylimits" : ylims,
+			"outfile" : outdir + "/" + T + ".pdf",
+			"term" : theterm]);
+
+
+		append(Ps, P); append(P_errs, dP);
+		append(phs, ph); append(ph_errs, dph);
+		append(Es, phi2dE(ph, tau) + Eoffs); append(E_errs, phi2dE(dph, tau));
+
+		print("-"*80);
+	}
+
+	plot(Ts, Ps, P_errs, 
+		["xlabel" : "T (K)", "ylabel" : "Polarisation", "title" : "{/Symbol t} = " + tau + " ps",
+		"xlimits" : "0 " + (max(Ts)+10), "ylimits" : (min(Ps)-0.05) + " " + (max(Ps)+0.05),
+		"size" : size_pts, "outfile" : outdir + "/P.pdf",
+		"term" : theterm]);
+
+	plot(Ts, Es, E_errs, 
+		["xlabel" : "T (K)", "ylabel" : "dE (mueV)", "title" : "{/Symbol t} = " + tau + " ps",
+		"xlimits" : "0 " + (max(Ts)+10), "ylimits" : (min(Es)-50) + " " + (max(Es)+50),
+		"size" : size_pts, "outfile" : outdir + "/E.pdf",
+		"term" : theterm]);
+}
+
+
+# -----------------------------------------------------------------------------
+
+
+# Test
+main()
+{
+	set_prec(4);
+	files = ["/home/tweber/Messdaten/trisp-15/data/sc77165.log",
+		"/home/tweber/Messdaten/trisp-15/data/sc77175.log",
+		"/home/tweber/Messdaten/trisp-15/data/sc77166.log"];
+	taus = [2., 3., 4.];
+	do_seseries(files, taus);
+}

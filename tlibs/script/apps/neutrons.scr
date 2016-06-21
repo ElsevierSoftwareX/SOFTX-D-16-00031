@@ -1,0 +1,49 @@
+lam2k(lam)
+{
+	return 2.*pi / lam;
+}
+
+k2lam(k)
+{
+	return 2.*pi / k;
+}
+
+lam2v(lam_A)
+{
+	lam = lam_A * 1e-10;
+	p = hbar*2.*pi/lam;
+	v = p/m_n;
+
+	return v;
+}
+
+k2E(k)
+{
+	k = k*1e10;
+
+	p = hbar*k;
+	E = p^2. / (2. * m_n);
+
+	E_meV = E/q_e * 1000.;
+	return E_meV;
+}
+
+E2k(E_meV)
+{
+	imag = 0;
+	if(E_meV less 0.)
+		imag = 1;
+
+	E = E_meV / 1000. * q_e;
+	E = abs(E);
+
+	p = sqrt(2.*m_n*E);
+	k = p / hbar;
+	return k / 1e10;
+}
+
+E2lam(E_meV)
+{
+	return k2lam(E2k(E_meV));
+	
+}

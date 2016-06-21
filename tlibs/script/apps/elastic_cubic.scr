@@ -1,0 +1,91 @@
+#!./hermelin
+
+usage(app)
+{
+        print("\nElastic peak calculation for cubic lattice");
+	print("\nUsage: e.g. " + app + " h=1 k=0 l=0 a=1 ki=1.5 orient1=1,0,0 orient2=0,1,0");
+        print("\th,k,l\tMiller indices");
+        print("\ta\tlattice constant in A");
+        print("\tki\telastic ki (ki=kf) in 1/A");
+	print("\torient1\tcrystal orientation");
+	print("\torient2\tcrystal orientation");
+	print();
+}
+
+main(args)
+{
+	orient1 = [1,1,0];
+	orient2 = [0,0,1];
+
+	h = 1.;
+	k = 1.;
+	l = 1.;
+	ki = 1.4;
+	a = 6.07;
+
+	if(length(args) > 1)
+        for(arg : args[1:length(args)])
+        {
+                if(trim(arg) == "--help")
+                {
+			usage(args[0]);
+                        return 0;
+                }
+
+                arg_split = trim(split(arg, "="));
+		arg_val = real(arg_split[1]);
+
+		if(arg_split[0] == "orient1" || arg_split[0] == "orient2")
+		{
+			arg_vec = tokens(arg_split[1], ",");
+			if(length(arg_vec) != 3)
+			{
+				print("Error: Invalid 3-vector entered for " + arg_split[0] + ".");
+				exit(-1);
+			}
+
+			arg_val = [real(arg_vec[0]), real(arg_vec[1]), real(arg_vec[2])];
+		}
+
+		register_var(arg_split[0], arg_val);
+	}
+
+
+        orientup = cross(orient1, orient2);
+        orient2 = cross(orientup, orient1);
+
+        orient1 /= len(orient1);
+        orient2 /= len(orient2);
+        orientup /= len(orientup);
+
+
+	hkl = [h,k,l];
+	
+
+	print("a = " + a + " A");
+	print("hkl = " + str(hkl));
+	print("ki = kf = " + ki + " 1/A");
+	print("orient1 = " + str(orient1));
+	print("orient2 = " + str(orient2));
+	#print("orientup = " + str(orientup));
+
+
+
+	hkl_along1 = prod(hkl, orient1);
+	hkl_along2 = prod(hkl, orient2);
+
+	#print("hkl along 1 = " + hkl_along1);
+	#print("hkl along 2 = " + hkl_along2);
+
+	print();
+	Q = 2.*pi/a * sqrt(hkl_along1^2. + hkl_along2^2.);
+	print("Q = " + Q + " 1/A");
+
+
+	# Q * lam = 4*pi*sin(theta)
+	# Q * 2*pi/k = 4*pi*sin(theta)
+	# Q/(2*k) = sin(theta)
+	theta = asin(Q/(2.*ki)) / pi * 180.;
+	print("theta = " + theta + " deg");
+	print("2theta = " + 2.*theta + " deg");
+}

@@ -1,0 +1,60 @@
+#!./hermelin
+
+
+# branch = 1	=>	optic phonon
+# branch = -1	=>	acoustic phonon
+disp(beta, m1, m2, q, a, branch)
+{
+	# see Furrer p. 92
+	om_sq = beta*(1./m1 + 1./m2) + branch*beta*sqrt((1./m1 + 1./m2)^2. - 4./(m1*m2)*sin(q*a/2.)^2.);
+	return sqrt(om_sq);
+}
+
+usage(app)
+{
+        print("\nPhonon branch calculation\n\nUsage: e.g. " + app + " m1=1 m2=2 a=1 beta=1");
+        print("\tm1\tmass of atom sort 1");
+        print("\tm2\tmass of atom sort 2");
+        print("\ta\tdistance between two atoms of the SAME sort");
+        print("\tbeta\tforce constant");
+	print();
+}
+
+main(args)
+{
+	beta = 1.;
+	m1 = 1.;
+	m2 = 2.;
+	a = 1.;
+
+	if(length(args) greater 1)
+        for(arg : args[1:length(args)])
+        {
+                if(trim(arg) eq "--help")
+                {
+			usage(args[0]);
+                        return 0;
+                }
+
+                arg_split = trim(split(arg, "="));
+		register_var(arg_split[0], real(arg_split[1]));
+	}
+
+
+	#q = linspace(-pi/(2.*a), pi/(2.*a), 128);
+	q = linspace(-pi/a, pi/a, 256);
+	om1 = disp(beta, m1, m2, q, a, 1.);
+	om2 = disp(beta, m1, m2, q, a, -1.);
+
+	xlim = str(min(q)) + " " + str(max(q));
+
+	plopt1 = ["style":"line", "legend":"optic phonon"];
+	plopt2 = ["style":"line", "legend":"acoustic phonon"];
+
+	title = "m1=" + m1 + ", m2=" + m2 + ", a=" + a + ", beta="+beta;
+	plopt = ["xlabel":"q", "ylabel":"omega", "title":title, "xlimits":xlim
+#		, "term":"wxt", "outfile":"phonon.pdf"
+		];
+
+	plot([q, om1, plopt1], [q, om2, plopt2], plopt);
+}

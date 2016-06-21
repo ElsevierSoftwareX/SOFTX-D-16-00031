@@ -1,0 +1,56 @@
+# for square lattice
+hkl2Q(h,k,l, a)
+{
+	return 2.*pi/a * sqrt(h^2 + k^2 + l^2);
+}
+
+
+# see: http://www.ill.eu/sites/ccsl/ffacts/ffactnode3.html
+j0_avg(s, A,B,C,D, a,b,c)
+{
+	return A*exp(-a*s^2) + B*exp(-b*s^2) + C*exp(-c*s^2) + D;
+}
+
+j2_avg(s, A,B,C,D, a,b,c)
+{
+	return s^2. * j0_avg(s, A,B,C,D, a,b,c);
+}
+
+
+# see: Squires, p. 139
+# use L,S,J from term symbol and A0,... A2,... from ill tables
+formfact(Q, L,S,J, A0,B0,C0,D0, a0,b0,c0, A2,B2,C2,D2, a2,b2,c2)
+{
+	s = Q / (4.*pi);
+
+	gS = 1. + (S*(S+1.) - L*(L+1.)) / (J * (J+1.));
+	gL = 0.5 + (L*(L+1.) - S*(S+1.)) / (2.*J* (J+1));
+	#gL = 0.;
+	g = gS + gL;
+
+	#print("gS = " + gS);
+	#print("gL = " + gL);
+
+	j0 = j0_avg(s, A0,B0,C0,D0, a0,b0,c0);
+	j2 = j2_avg(s, A2,B2,C2,D2, a2,b2,c2);
+
+	return (gS*j0 + gL*(j0+j2)) / g;
+}
+
+
+plot_formfact(L,S,J, A0,B0,C0,D0, a0,b0,c0, A2,B2,C2,D2, a2,b2,c2)
+{
+	Qs = linspace(0., 10., 128);
+	Fs = formfact(Qs, L,S,J, A0,B0,C0,D0, a0,b0,c0, A2,B2,C2,D2, a2,b2,c2);
+	#Fs_sq = Fs^2.;
+
+	plopt = map();
+	plopt["xlabel"] = "Q (1/A)";
+	plopt["ylabel"] = "f(Q)";
+	plopt["style"] = "line";
+	plopt["size"] = 2.;
+	plopt["term"] = "wxt";
+	plopt["grid"] = 1;
+
+	plot(Qs, Fs, plopt);
+}

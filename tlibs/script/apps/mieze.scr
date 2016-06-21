@@ -1,0 +1,59 @@
+#
+# Mieze Calculations
+# Author: TW
+#
+
+__init__() 
+{
+	import("apps/neutrons.scr");
+}
+
+
+# f2/f1 = L1/L2 + 1;
+#
+# f2-f1 = tau / (2. * Ls * h) * (m_n * v^3);	| : f1
+# f2/f1 = tau / (2. * Ls * h * f1) * (m_n * v^3) + 1;
+#
+# L2/L1 / (2*Ls*h) * (m_n *v^3 * tau) = f1;
+
+mieze_f2(L1, L2, f1)
+{
+	return (L1/L2 + 1.)*f1;
+}
+
+mieze_fm(tau, Ls, lam_A)
+{
+	v = lam2v(lam_A);
+
+	fm = tau / (Ls * h) * (m_n * v^3);
+	return fm;
+}
+
+mieze_fm_from_f1f2(f1, f2)
+{
+	return 4.*pi*(f2-f1);
+}
+
+mieze_f1f2(L1, L2, Ls, lam_A, tau_ps)
+{
+	tau = tau_ps * 1e-12;
+	v = lam2v(lam_A);
+
+	f1 = L2/L1 / (2. * Ls * 2.*pi*hbar) * (m_n * v^3 * tau);
+	f2 = (L1/L2 + 1.)*f1;
+
+	return [f1, f2];
+}
+
+mieze_det_offs(L_1, L_b, f_A, f_B, lam_A, dE_meV)
+{
+#	print("L1 = " + L_1 + "\nLb = " + L_b + "\nfA = " + f_A + "\nfB = " + f_B + "\nlam = " + lam_A + "\ndE = " + dE_meV + "\n");
+
+	v_n = lam2v(lam_A);
+	dE_J = dE_meV * 1e-3 * q_e;
+
+	Ls_elast = f_A*L_1 / (f_B-f_A) - L_b;
+	Ls_inelast = Ls_elast * (sqrt(v_n^2. + 2.*dE_J/m_n)/v_n)^3.;
+
+	return Ls_inelast - Ls_elast;
+}

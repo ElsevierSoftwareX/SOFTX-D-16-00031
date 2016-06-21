@@ -1,0 +1,539 @@
+#!./hermelin
+
+#
+# Instrument data file loading
+# @author tw
+#
+
+module_init()
+{
+	import("apps/fit.scr");
+	import("apps/dialog.scr");
+	import("apps/gplchars.scr");
+
+	global size_pts = 0.75;
+	global size_lines = 1.75;
+	global num_pts = 512;
+	global theterm = "wxt";
+	global usegrid = 0;
+	global write_plotfiles = 0;
+}
+
+norm_to_mon(dat_y, dat_yerr, dat_mon, dat_monerr)
+{
+	for(i=0; i<length(dat_y); i+=1)
+	{
+		a = dat_y[i];
+		da = dat_yerr[i];
+		b = dat_mon[i];
+		db = dat_monerr[i];
+
+		if(a < 0.)
+		{
+			a = 0.;
+			da = 0.;
+
+			print("Error: Negative counts for point " + (i+1) + ", assuming 0!");
+		}
+
+		if(a == 0. and b == 0.)
+		{
+			#dat_y[i] = 0.;
+			#dat_yerr[i] = 999.;
+
+			print("Warning: Monitor and counts are zero for point " + (i+1) + "!");
+		}
+
+		dat_y[i] = a/b;
+		dat_yerr[i] = sqrt((1./b * da)^2. + (a/b^2. * db)^2.);
+	}
+
+	return [dat_y, dat_yerr];
+}
+
+get_col_mean(instrdat, thelabel)
+{
+	labels = instrdat["labels"];
+
+	idx = -1;
+	for(label : labels)
+	{
+		if(thelabel == label)
+		{
+			idx = cur_iter(label);
+			break;
+		}
+	}
+
+	if(idx < 0)
+		return [0., 0.];
+
+	thedat = instrdat["data"][idx];
+	m = mean(thedat);
+	s = stddev(thedat);
+
+	return [m, s];	
+}
+
+load_instr(filenames, norm_to_monitor=1, opts=map())
+{
+	instr = loadinstr(filenames);
+	if(!instr["ok"])
+	{
+		print("Cannot load file(s).");
+		return -1;
+	}
+
+
+	if(typeof(filenames) == "vector" and length(filenames)>1)
+	{
+		for(filename : filenames)
+			if(cur_iter(filename) == 0) 
+				print("Loaded " + filename + ".");
+			else
+				print("Merged " + filename + " with " + filenames[0] + ".");
+	}
+	else
+	{
+		print("Loaded " + filenames + ".");
+	}
+
+	labs = instr["labels"];
+	data = instr["data"];
+	params = instr["params"];
+	scanvars = instr["scanvars"];
+	countvar = instr["countvar"];
+	monvar = instr["monvar"];
+	if(monvar == "mon1")
+		monvar = "mon2";
+
+	if(!is_valid(labs, data, params, scanvars))
+		return -1;
+
+
+	if(typeof(data[0])!="vector" || length(data[0]) == 0)
+	{
+		print("Error: Empty data file.");
+		return -1;
+	}
+
+	if(is_valid(opts))
+	{
+		if(has_key(opts, "remove_front"))
+		{
+			cntremove = opts["remove_front"];
+			print("Removing first " + cntremove + " data points.");
+
+			for(thedat : data)
+				thedat = thedat[cntremove:length(thedat)];
+		}
+
+		if(has_key(opts, "remove_back"))
+		{
+			cntremove = opts["remove_back"];
+			print("Removing last " + cntremove + " data points.");
+
+			for(thedat : data)
+				thedat = thedat[0: length(thedat)-cntremove];
+		}
+
+		#print(data);
+	}
+
+	scvar = scanvars[0];
+	idx_x = find(labs, scvar);
+	
+	if(idx_x < 0)
+	{
+		idx_x = dlg_menu(labs);
+		scvar = labs[idx_x];
+	}
+
+	idx_y = find(labs, countvar);
+	idx_mon = find(labs, monvar);
+
+	if(idx_x<0 || idx_y<0)
+	{
+		print("Error: Suitable indices not found.");
+		return -1;
+	}
+
+
+	print("Scan over " + scvar);
+	print("Using indices (" + idx_x + ", " + idx_y + ")");
+
+
+	xlab = scvar;
+	ylab = "Counts";
+	if(norm_to_monitor)
+		ylab = "Counts / monitor";
+
+	if(scvar == "EN")
+		xlab = "E (meV)";
+	else if(scvar=="QH" || scvar=="QK" || scvar=="QL")
+		xlab = "h (rlu)";
+
+
+	dat_x = data[idx_x];
+	dat_y = data[idx_y];
+	dat_yerr = sqrt(data[idx_y]);
+
+	if(norm_to_monitor)
+	{
+		dat_mon = data[idx_mon];
+		dat_monerr = sqrt(dat_mon);
+
+		[dat_y, dat_yerr] = norm_to_mon(dat_y, dat_yerr, dat_mon, dat_monerr);
+	}
+
+
+	return [instr, dat_x, dat_y, dat_yerr, xlab, ylab];
+}
+
+get_plotobj_gausses(num_peaks, fitres, thedat, plot_dat=0, param_vec=[])
+{
+	minx = min(thedat[0]);
+	maxx = max(thedat[0]);
+	xrange = (maxx-minx)/20.;
+	xlims = (minx-xrange) + " " + (maxx+xrange);	
+	
+	miny = min(thedat[1]);
+	maxy = max(thedat[1]);
+	yrange = (maxy-miny)/20.;
+	ylims = (miny-yrange) + " " + (maxy+yrange);
+
+
+	params_vals = map_vec_to_val(fitres);
+	params_errs = map_vec_to_val(fitres, 1);
+	print("Fit values: " + str(params_vals));
+	print("Fit errors: " + str(params_errs));
+
+	fitfkt = fitres["<model>"];
+	fitfkt_single = gaussmodel;
+	if(find(fitfkt, "voigt") >= 0)
+		fitfkt_single = voigtmodel;
+
+	fitx = linspace(minx-xrange, maxx+xrange, num_pts);
+	fity = call(fitfkt, params_vals + ["x":fitx]);
+
+	fity_gausses = vec(num_peaks);
+	for(iPeak=0; iPeak<num_peaks; iPeak+=1)
+	{
+		if(num_peaks != 1)
+		{
+			x0 = "x0_" + iPeak;
+			sigma = "sigma_" + iPeak;
+			amp = "amp_" + iPeak;
+			gamma = "gamma_" + iPeak;
+		}
+		else
+		{
+			x0 = "x0";
+			sigma = "sigma";
+			amp = "amp";
+			gamma = "gamma";
+		}
+
+		params_vals_gauss = ["x0":params_vals[x0], "gamma":params_vals[gamma], "sigma":params_vals[sigma], "amp":params_vals[amp], "offs":params_vals["offs"]];
+		#params_errs_gauss = ["x0":params_errs[x0], "gamma":params_errs[gamma], "sigma":params_errs[sigma], "amp":params_errs[amp], "offs":params_errs["offs"]];
+
+		fity_gausses[iPeak] = call(fitfkt_single, ["x":fitx] + params_vals_gauss);
+	}
+
+
+	plotobjs = [];
+
+	if(plot_dat)
+		plotobjs[length(plotobjs)] = [[thedat[0], thedat[1], thedat[2], ["size":size_pts]]];
+
+	if(num_peaks >= 2)
+		for(fity_gauss : fity_gausses)
+			plotobjs[length(plotobjs)] = [fitx, fity_gauss, ["style":"lines_dashed", "size":size_lines]];
+	plotobjs[length(plotobjs)] = [fitx, fity, ["style":"lines", "size":size_lines]];
+	
+
+	plotmap = map();
+	plotmap["xlimits"] = xlims;
+	plotmap["ylimits"] = ylims;
+	plotmap["term"] = theterm;
+	plotmap["grid"] = usegrid;
+	return [plotobjs, plotmap];
+}
+
+get_gauss_params(thefit, xvar=0., sortmode=">")
+{
+	posvar = "x0";
+	sigvar = "sigma";
+	ampvar = "amp";
+
+	pos = [];
+	amp = [];
+	sig = [];
+	pos_err = [];
+	amp_err = [];
+	sig_err = [];
+	x = [];
+
+	if(has_key(thefit, posvar))
+	{
+		pos[length(pos)] = thefit[posvar][0];
+		pos_err[length(pos_err)] = thefit[posvar][1];
+		x[length(x)] = xvar;
+	}
+	if(has_key(thefit, sigvar))
+	{
+		sig[length(sig)] = thefit[sigvar][0];
+		sig_err[length(sig_err)] = thefit[sigvar][1];
+	}
+	if(has_key(thefit, ampvar))
+	{
+		amp[length(amp)] = thefit[ampvar][0];
+		amp_err[length(amp_err)] = thefit[ampvar][1];
+	}
+
+	i = 0;
+	while(1)
+	{
+		curposvar = posvar + "_" + str(i);
+		#print(curposvar);
+		if(!has_key(thefit, curposvar))
+			break;
+
+		pos[length(pos)] = thefit[curposvar][0];
+		pos_err[length(pos_err)] = thefit[curposvar][1];
+		x[length(x)] = xvar;
+
+		i += 1;
+	}
+	i = 0;
+	while(1)
+	{
+		cursigvar = sigvar + "_" + str(i);
+		if(!has_key(thefit, cursigvar))
+			break;
+
+		sig[length(sig)] = thefit[cursigvar][0];
+		sig_err[length(sig_err)] = thefit[cursigvar][1];
+
+		i += 1;
+	}
+	i = 0;
+	while(1)
+	{
+		curampvar = ampvar + "_" + str(i);
+		if(!has_key(thefit, curampvar))
+			break;
+
+		amp[length(amp)] = thefit[curampvar][0];
+		amp_err[length(amp_err)] = thefit[curampvar][1];
+
+		i += 1;
+	}
+
+	#print("before: " + str(pos));
+	if(sortmode == ">")
+		[pos, pos_err, sig, sig_err, amp, amp_err, x] = sort_rev(pos, pos_err, sig, sig_err, amp, amp_err, x);
+	else if(sortmode == "<")
+		[pos, pos_err, sig, sig_err, amp, amp_err, x] = sort(pos, pos_err, sig, sig_err, amp, amp_err, x);
+	#print("after: " + str(pos));
+
+	return [x, pos, pos_err, sig, sig_err, amp, amp_err];
+}
+
+get_gauss_param(thefit, xvar=0., posvar="x0", sortmode=">")
+{
+	pos = [];
+	pos_err = [];
+	x = [];
+
+	if(has_key(thefit, posvar))
+	{
+		pos[length(pos)] = thefit[posvar][0];
+		pos_err[length(pos_err)] = thefit[posvar][1];
+		x[length(x)] = xvar;
+	}
+
+	i = 0;
+	while(1)
+	{
+		curposvar = posvar + "_" + str(i);
+		#print(curposvar);
+		if(!has_key(thefit, curposvar))
+			break;
+
+		pos[length(pos)] = thefit[curposvar][0];
+		pos_err[length(pos_err)] = thefit[curposvar][1];
+		x[length(x)] = xvar;
+
+		i += 1;
+	}
+
+	#print("before: " + str(pos));
+	if(sortmode == ">")
+		[pos, pos_err, x] = sort_rev(pos, pos_err, x);
+	else if(sortmode == "<")
+		[pos, pos_err, x] = sort(pos, pos_err, x);
+	#print("after: " + str(pos));
+
+	return [x, pos, pos_err];
+}
+
+dualplot(plotobj, plotmap, filename="")
+{
+	#print(plotmap);
+	plot(plotobj, plotmap);
+	if(filename != "")
+	{
+		if(write_plotfiles)
+			plotmap["cmdfile"] = filename + ".gpl";
+		fileplot(filename, plotobj, plotmap);
+	}
+}
+
+plot_gausses(num_gausses, thefit, thedat, title, xlab, ylab, filename, restplotmap=map())
+{
+	if(!int(thefit["<valid>"]))
+		title += " !! FIT INVALID !! ";
+	else
+		title += ", {/Symbol c}^2/n_d_f = " + thefit["<chi2_red>"];
+
+	[plotobj, plotmap] = get_plotobj_gausses(num_gausses, thefit, thedat, 1, []);
+	plotmap = restplotmap + plotmap;
+	dualplot(plotobj, plotmap + ["xlabel":xlab, "ylabel":ylab, "title":title], filename);
+}
+
+fit_gausses(dat_x, dat_y, dat_yerr, peaks_x, peaks_size, peaks_width)
+{
+	num_peaks = length(peaks_x);
+
+	param_vec = [];
+	if(num_peaks == 1)
+		fitres = fit_gauss_manual(dat_x, dat_y, dat_yerr, peaks_x[0], peaks_size[0], peaks_width[0]);
+	else if(num_peaks == 2)
+		fitres = fit_doublegauss_manual(dat_x, dat_y, dat_yerr, peaks_x, peaks_size, peaks_width);
+	else			
+		[fitres, param_vec] = fit_multigauss_manual(dat_x, dat_y, dat_yerr, peaks_x, peaks_size, peaks_width);
+
+	return [fitres, param_vec];
+}
+
+plot_instr(filenames, do_fit, peaks_x, peaks_size, peaks_width, title, outfile, opts=map())
+{
+	[instr, dat_x, dat_y, dat_yerr, xlab, ylab] = load_instr(filenames, 1, opts);
+
+	num_peaks = length(peaks_x);
+	title_len = length(title);
+
+	if(!is_valid(instr) || !instr["ok"])
+	{
+		print("Cannot load file(s).");
+		return -1;
+	}
+
+
+	labs = instr["labels"];
+	data = instr["data"];
+	params = instr["params"];
+	scanvars = instr["scanvars"];
+	countvar = instr["countvar"];
+	monvar = instr["monvar"];
+	if(monvar == "mon1")
+		monvar = "mon2";
+
+
+
+	numor = trim(params["FILE_"]);
+	if(length(numor))
+	{
+		print("File number(s): " + numor);
+
+		oldtitle = title;
+		title = "Scan " + numor;
+		if(title_len)
+			title += ", " + oldtitle;
+	}
+
+
+
+	idx_temp = find(labs, "TT");
+	if(idx_temp>=0)
+	{
+		temp_mean = mean(data[idx_temp]);
+		temp_err = stddev(data[idx_temp]);
+
+		params["temp_mean"] = temp_mean;
+		params["temp_err"] = temp_err;
+
+		if(title_len > 0)
+			title += ", " + temp_mean + " K " + gpl_pm + " " + temp_err + " K";
+		print("Temperature: " + temp_mean + " +- " + temp_err);
+	}
+
+	
+
+
+	minx = min(dat_x);
+	maxx = max(dat_x);
+	xrange = (maxx-minx)/20.;
+	xlims = (minx-xrange) + " " + (maxx+xrange);	
+	
+	miny = min(dat_y);
+	maxy = max(dat_y);
+	yrange = (maxy-miny)/20.;
+	ylims = (miny-yrange) + " " + (maxy+yrange);
+	#ylims = "0 0.003";
+
+	# Fit
+	fitres = 0;
+	plotobjs_fit = [];
+	if(do_fit)
+	{
+		param_vec = [];
+		[fitres, param_vec] = fit_gausses(dat_x, dat_y, dat_yerr, peaks_x, peaks_size, peaks_width);
+		plotobjs_fit = get_plotobj_gausses(num_peaks, fitres, [dat_x, dat_y, dat_yerr], 0, param_vec);
+	}
+
+	plotobjs = [[dat_x, dat_y, dat_yerr, ["size":size_pts]]];
+	plotobjs = splice(plotobjs, plotobjs_fit);
+	
+	if(do_fit)
+	{
+		if(!fitres["<valid>"])
+			title += "  !! FIT DID NOT CONVERGE !!  ";
+		else
+			title += ", {/Symbol c}^2/n_d_f = " + fitres["<chi2_red>"];
+	}
+
+	plotmap = [ "xlimits" : xlims,
+		"ylimits" : ylims,
+		"xlabel" : xlab,
+		"ylabel" : ylab,
+		"title" : title,
+		"grid" : usegrid,
+		"term" : theterm ];
+	plot(plotobjs, plotmap);
+
+	if(is_valid(outfile) && length(outfile) != 0)
+	{
+		if(write_plotfiles)
+			plotmap["cmdfile"] = outfile + ".gpl";
+		fileplot(outfile, plotobjs, plotmap);
+	}
+
+	#sleep(10000);
+	return [params, fitres];
+}
+
+
+
+main(args)
+{
+	if(length(args) < 2)
+	{
+		print("Please enter some file names.");
+		return -1;
+	}
+
+	files = args[1:length(args)];
+	plot_instr(files, 0, [], [], [], "", "", map());
+}

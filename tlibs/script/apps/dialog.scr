@@ -1,0 +1,65 @@
+#!./hermelin
+
+module_init()
+{
+	ret = exec("dialog > /dev/null");
+	if(!ret)
+	{
+		print("Error: dialog tool not found.");
+		exit(-1);
+	}
+}
+
+dlg_msg(msg)
+{
+	w = 20;
+	h = 5;
+	exec("dialog --msgbox \"" + msg + "\" " + h + " " + w);
+	exec("clear");
+}
+
+dlg_yesno(msg)
+{
+	w = 20;
+	h = 8;
+	result = exec("dialog --yesno \"" + msg + "\" " + h + " " + w);
+	exec("clear");
+	return result;
+}
+
+dlg_menu(items)
+{
+	w = 32;
+	h = 7 + length(items);
+	if(h > 24)
+		h = 24;
+
+	numitems = length(items);
+	tmpfile = "/tmp/dlg_menu_result.tmp";
+
+	dlgcmd = "dialog --menu \"Select item\" " + h + " " + w + " " + numitems;
+	for(item : items)
+	{
+		dlgcmd += " \\ " + (cur_iter(item)+1);
+		dlgcmd += " " + item;	
+	}
+	dlgcmd += " 2>" + tmpfile;
+	#print(dlgcmd);
+
+	okpressed = exec(dlgcmd);
+	exec("clear");
+
+	if(okpressed)
+	{
+		result = int(read_file(tmpfile));
+		#print("Result: " + result);
+		return result-1;
+	}
+	return -1;
+}
+
+main()
+{
+	dlg_msg("Test");
+	print(dlg_menu(["one", "two", "three"]));
+}

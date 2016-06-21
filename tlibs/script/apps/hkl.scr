@@ -1,0 +1,357 @@
+#!./hermelin
+#
+# TAS angle calculations
+# @author tweber
+#
+
+
+# -----------------------------------------------------------------------------
+angle_sample_tt(ki, kf, Q)
+{
+	ctt = (ki^2. + kf^2. - Q^2.)/(2.*ki*kf);
+	if(abs(ctt) > 1.)
+	{
+		print("Error in sample angle: Scattering triangle not closed!");
+		exit(-1);
+	}
+
+	return acos(ctt);
+}
+
+sample_tt_to_Q(ki, kf, tt)
+{
+	ctt = cos(tt);
+	Q = sqrt(-ctt*(2.*ki*kf) + ki^2. + kf^2.);
+	return Q;
+}
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+angle_mono_tt(d, k)
+{
+	sth = pi/(d*k);
+	if(abs(sth) > 1.)
+	{
+		print("Error in mono/ana angle: Scattering triangle not closed!");
+		exit(-1);
+	}
+
+	return 2. * asin(sth);
+}
+
+mono_k(d, th)
+{
+	sth = sin(th);
+	return 1./(sth/pi*d);
+}
+
+mono_Q(d)
+{
+        n = 1.;
+        Q = n * 2.*pi / d;
+        return Q;
+}
+# -----------------------------------------------------------------------------
+
+
+angle_ki_Q(ki, kf, Q)
+{
+	c = (ki^2. - kf^2. + Q^2.)/(2.*ki*Q);
+	if(abs(c) > 1.)
+	{
+		print("Error: Scattering triangle not closed!");
+		exit(-1);
+	}
+
+	return acos(c);	
+}
+
+angle_vec(vec)
+{
+	return atan2(vec[1], vec[0]);
+}
+
+
+# -----------------------------------------------------------------------------
+B_matrix(a,b,c, alpha, beta, gamma)
+{
+	dSG = sin(gamma);
+	dCG = cos(gamma);
+	dCA = cos(alpha);
+	dCB = cos(beta);
+
+	dCA2 = dCA*dCA;
+	dCB2 = dCB*dCB;
+	dCG2 = dCG*dCG;
+
+	dVol = a*b*c*sqrt(1.- dCA2 - dCB2 - dCG2 + 2.*dCA*dCB*dCG);
+
+	veca = [a, 0., 0.];
+        vecb = [b*dCG, b*dSG, 0.];
+        vecc = [c*dCB, c*(dCA - dCB*dCG) / dSG, dVol / (a*b*dSG)];
+
+	matreal = [veca, vecb, vecc];
+	matrecip = 2.*pi * inv(matreal);
+	#print("B_real = " + str(trans(matreal)));
+
+	return matrecip;
+}
+
+UB_matrix(B, orient1, orient2)
+{
+	orient = trans([orient1, orient2]);
+	orientB = prod(B, orient);
+
+	#print("orient = " + str(orient));
+	#print("orientB = " + str(orientB));
+
+	orient1 = orientB[:,0];
+	orient2 = orientB[:,1];
+
+	orientup = cross(orient1, orient2);
+	orient2 = cross(orientup, orient1);
+
+	orient1 /= len(orient1);
+	orient2 /= len(orient2);
+	orientup /= len(orientup);
+
+	U = [orient1, orient2, orientup];
+	UB = prod(U, B);
+	return [U, UB];
+}
+# -----------------------------------------------------------------------------
+
+
+ki_kf_to_E(ki, kf)
+{
+	E = (hbar*ki*1e10)^2. / (2.*m_n) - (hbar*kf*1e10)^2. / (2.*m_n);
+	E /= q_e;
+	E *= 1000.;
+
+	return E;
+}
+
+
+print_sample(a,b,c, alpha,beta,gamma)
+{
+	print("-"*80);
+	print("a = " + a + " A");
+	print("b = " + b + " A");
+	print("c = " + c + " A");
+	print("alpha = " + (alpha/pi*180.) + " deg");
+	print("beta = " + (beta/pi*180.) + " deg");
+	print("gamma = " + (gamma/pi*180.) + " deg");
+	print("-"*80);
+}
+
+tas2hkl(a,b,c, alpha,beta,gamma, orient1,orient2, theta_m, theta_a, theta_s, ttheta_s, dm,da)
+{
+	ki = mono_k(dm, theta_m);
+	kf = mono_k(da, theta_a);
+	E = ki_kf_to_E(ki, kf);
+	Q = sample_tt_to_Q(ki, kf, ttheta_s);
+
+	kiQ = angle_ki_Q(ki, kf, Q);
+	Qorient1 = pi - theta_s - kiQ;
+
+	B = B_matrix(a,b,c, alpha,beta,gamma);
+	[U, UB] = UB_matrix(B, orient1, orient2);
+	UB_inv = inv(UB);
+
+	print_sample(a,b,c, alpha,beta,gamma);
+	print("dm = " + dm + " A");
+	print("da = " + da + " A");
+	print("ki = " + ki + " 1/A");
+	print("kf = " + kf + " 1/A");
+
+	print("-"*80);
+	print("E = " + E + " meV");
+	print("Q = " + Q + " 1/A");
+
+	print("-"*80);
+	print("U = " + str(U));
+	print("B = " + str(B));
+	print("UB = " + str(UB));
+	print("-"*80);
+
+	s = sin(Qorient1);
+	c = cos(Qorient1);
+	vecQ = prod([[c,-s,0.],[s,c,0.],[0.,0.,1.]], [Q,0.,0.]);
+	hkl = prod(UB_inv, vecQ);
+
+	print("hkl = " + str(hkl) + " rlu");
+	print("-"*80);
+}
+
+hkl2tas(a,b,c, alpha,beta,gamma, orient1,orient2, h,k,l, ki,kf, dm,da)
+{
+	hkl = [h,k,l];
+
+	B = B_matrix(a,b,c, alpha,beta,gamma);
+	[U, UB] = UB_matrix(B, orient1, orient2);
+
+	print_sample(a,b,c, alpha,beta,gamma);
+	print("dm = " + dm + " A");
+	print("da = " + da + " A");
+	print("ki = " + ki + " 1/A");
+	print("kf = " + kf + " 1/A");
+
+	print("-"*80);
+	print("hkl = " + str(hkl));
+	print("U = " + str(U));
+	print("B = " + str(B));
+	print("UB = " + str(UB));
+	print("-"*80);
+
+	Q_vec = prod(UB, hkl);
+
+	print("Q = " + str(Q_vec) + " 1/A");
+
+	if(abs(Q_vec[2]) > 1e-6)
+	{
+		print("Error: Position not in scattering plane.");
+		exit(-1);
+	}
+
+	Q = len(Q_vec);
+	print("|Q| = " + Q + " 1/A");
+
+	E = ki_kf_to_E(ki, kf);
+	print("E = " + E + " meV");
+
+	print("-"*80);
+
+
+	ttheta_m = angle_mono_tt(dm, ki);
+	print("2theta_m = " + (ttheta_m/pi*180.) + " deg");
+	print("theta_m = " + (0.5*ttheta_m/pi*180.) + " deg");
+	ttheta_a = angle_mono_tt(da, kf);
+	print("2theta_a = " + (ttheta_a/pi*180.) + " deg");
+	print("theta_a = " + (0.5*ttheta_a/pi*180.) + " deg");
+
+	ttheta = angle_sample_tt(ki, kf, Q);
+	print("2theta = " + (ttheta/pi*180.) + " deg");
+
+	# theta = angle between ki and orient1
+	theta = 0.5*pi - (angle_ki_Q(ki, kf, Q) + angle_vec(Q_vec));
+	print("theta = " + (theta/pi*180.) + " deg");
+	print("-"*80);
+
+	return [ttheta_m*0.5, ttheta_a*0.5, theta, ttheta];
+}
+
+
+usage(app)
+{
+        print("\nTAS position calculation for single crystal");
+	print("\nExample usage:");
+	print("\t* hkl->tas: " + app + " h=1 k=1 l=0 ki=1.4 kf=1.5 a=5 b=5 c=5 alpha=90 beta=90 gamma=90 orient1=1,0,0 orient2=0,1,0");
+	print("\t* tas->hkl: " + app + " th_s=80.2 tt_s=75.5 tt_m=84 tt_a=77.3 a=5 b=5 c=5 alpha=90 beta=90 gamma=90 orient1=1,0,0 orient2=0,1,0");
+	print();
+        print("\ta,b,c                 lattice constants in A");
+        print("\talpha,beta,gamma      lattice angles in deg");
+	print("\torient1               crystal orientation");
+	print("\torient2               crystal orientation");
+        print("\tdm                    d-spacing of monochromator in A");
+        print("\tda                    d-spacing of analyser in A");
+        print("\tki                    ki in 1/A");
+        print("\tkf                    kf in 1/A (kf = ki if not given)");
+	print();
+	print("\th,k,l                 Miller indices in rlu");
+	print();
+	print("\tth_s                  Sample theta angle");
+	print("\ttt_s                  Sample twotheta angle");
+	print("\ttt_m                  Monochromator twotheta angle");
+	print("\ttt_a                  Analyser twotheta angle");
+	print();
+}
+
+main(args)
+{
+	orient1 = [1,0,0];
+	orient2 = [0,1,0];
+
+	h = 1.; k = 1.; l = 1.;
+	ki = 1.4;
+	a = 5.; b = a; c = a;
+	alpha = 90.; beta = alpha; gamma = alpha;
+
+	dm = 3.355;
+	da = 3.355;
+
+	had_b = 0;
+	had_c = 0;
+	had_kf = 0;
+
+	had_hkl = 0;
+	had_angles = 0;
+
+	if(length(args) > 1)
+        for(arg : args[1:length(args)])
+        {
+                if(trim(arg) == "--help")
+                {
+			usage(args[0]);
+                        return 0;
+                }
+
+                arg_split = trim(split(arg, "="));
+		arg_val = real(arg_split[1]);
+
+		if(arg_split[0] == "orient1" || arg_split[0] == "orient2")
+		{
+			arg_vec = tokens(arg_split[1], ",");
+			if(length(arg_vec) != 3)
+			{
+				print("Error: Invalid 3-vector entered for " + arg_split[0] + ".");
+				exit(-1);
+			}
+
+			arg_val = real_vec(arg_vec);
+		}
+
+		if(arg_split[0] == "b")
+			had_b = 1;
+		else if(arg_split[0] == "c")
+			had_c = 1;
+		else if(arg_split[0] == "kf")
+			had_kf = 1;
+		else if(arg_split[0]=="h" || arg_split[0]=="k" || arg_split[0]=="l")
+			had_hkl = 1;
+		else if(arg_split[0]=="th_s" || arg_split[0]=="tt_s" || arg_split[0]=="tt_m" || arg_split[0]=="tt_a")
+			had_angles = 1;
+
+		register_var(arg_split[0], arg_val);
+	}
+	else
+	{
+		usage(args[0]);
+		return 0;
+	}
+
+	if(!had_b) b = a;
+	if(!had_c) c = a;
+	if(!had_kf) kf = ki;
+
+
+	if(had_hkl)
+	{
+		print("\nCalculating hkl->tas\n");
+		[theta_m, theta_a, theta_s, ttheta_s] = hkl2tas(a,b,c, alpha/180.*pi,beta/180.*pi,gamma/180.*pi, orient1,orient2, h,k,l, ki,kf, dm,da);
+		#tas2hkl(a,b,c, alpha,beta,gamma, orient1,orient2, theta_m, theta_a, theta_s, ttheta_s, dm,da);
+	}
+	else if(had_angles)
+	{
+		print("\nCalculating tas->hkl\n");
+		tas2hkl(a,b,c, alpha/180.*pi,beta/180.*pi,gamma/180.*pi, orient1,orient2, tt_m/2./180.*pi, tt_a/2./180.*pi, th_s/180.*pi, tt_s/180.*pi, dm,da);
+	}
+	else
+	{
+		print("Error: Not enough variables given.");
+		return -1;
+	}
+
+	return 0;
+}

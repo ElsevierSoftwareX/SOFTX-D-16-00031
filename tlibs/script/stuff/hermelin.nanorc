@@ -1,0 +1,31 @@
+#
+# Nano syntax highlighter rules for hermelin scripts
+# (based on c.nanorc and python.nanorc)
+#
+syntax "hermelin" "\.scr$"
+header "^#!.*/hermelin"
+
+# function headers
+icolor brightgreen "^[0-9A-Za-z_]+[[:space:]]*\([0-9A-Za-z_, ]*\)"
+
+# keywords
+color yellow "\<(if|else|for|while)\>"
+color magenta "\<(continue|break|return)\>"
+color brightmagenta "\<(and|or|not|eq|neq|less|greater|leq|geq)\>"
+color cyan "\<(global)\>"
+
+# some builtin runtime functions
+color brightcyan "\<(output|input|print|import|register_var|int|real|str|map|vec|has_var|typeof|trim|split|tokens|vec_size|length|cur_iter|zip)\>"
+color brightcyan "\<(sqrt|exp|pow|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|erf|log)\>"
+color brightcyan "\<(fft|ifft)\>"
+color brightcyan "\<(linspace|logspace|plot)\>"
+color brightcyan "\<(mat|unity|trans|inv|det|prod)\>"
+
+# builtin constants
+color brightwhite "\<(pi|hbar|k_B|hbar_eVs|k_B_eVperK|c_0|N_A|m_n|m_u|m_e)\>"
+
+# strings
+color brightyellow ""(\\.|[^"])*""
+
+# comments
+color brightblue "#.*$"

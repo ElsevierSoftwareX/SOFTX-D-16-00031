@@ -1,0 +1,70 @@
+#!./hermelin
+
+
+# Bragg tail dispersions
+# -> Shirane, p. 152
+bragg_tail(k, q, kf_fix=1)
+{
+	k *= 1e10;
+	q *= 1e10;
+
+	term = q/(2.*k);
+	if(kf_fix)
+		term = -term;
+
+	om = hbar / m_n * k*q*(1+term);
+	E = hbar * om;
+	E /= q_e;
+
+	E *= 1000.;		# meV
+
+	return E;
+}
+
+# approximate Bragg tail dispersion for k_i = fixed
+# -> Shirane, p. 152
+bragg_tail_approx(k_i, q)
+{
+	return 4.*k_i * q;
+}
+
+
+usage(app)
+{
+        print("Bragg tail dispersion");
+	print("Usage: e.g. " + app + " k=1.4");
+	print("\tk                     k_i of k_f in 1/A");
+}
+
+main(args)
+{
+	k = 1.4;
+
+	if(length(args) > 1)
+        for(arg : args[1:length(args)])
+        {
+                if(trim(arg) == "--help")
+                {
+			usage(args[0]);
+                        return 0;
+                }
+
+                arg_split = trim(split(arg, "="));
+		arg_val = real(arg_split[1]);
+
+		register_var(arg_split[0], arg_val);
+	}
+
+	q = linspace(-2., 2., 64);
+	E_kf_fix = bragg_tail(k, q, 1);
+	E_ki_fix = bragg_tail(k, q, 0);
+	E_ki_fix_approx = bragg_tail_approx(k, q);
+
+	plot([	[q, E_kf_fix, ["style":"line", "legend":"k_f = fixed", "size":2, "color":0xff0000]],
+		[q, E_ki_fix, ["style":"line", "legend":"k_i = fixed", "size":2, "color":0x0000ff]],
+		[q, E_ki_fix_approx, ["style":"line", "legend":"k_i = fixed, approx.", "size":2, "color":0x00ffff]]
+		], 
+			["xlabel":"q (1/A)", 
+			"ylabel":"E (meV)",
+			"title":"Bragg tail dispersion for k=" + str(k)]);
+}

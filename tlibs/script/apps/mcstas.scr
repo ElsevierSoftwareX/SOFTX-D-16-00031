@@ -1,0 +1,123 @@
+#!./hermelin
+#
+# Routines for invoking McStas
+# Author: TW
+#
+
+__init__()
+{
+	import("apps/colors.scr");
+
+	global mcmutex = mutex();
+	global totalsimcount = 1;
+	global finishedsims = 0;
+	global use_cpp = 1;
+	global use_cpp_opt = 1;
+}
+
+mcclean(instr)
+{
+	exec("rm -f " + (instr + ".c") + " " + (instr + ".cpp") + " " + (instr + ".out"));
+}
+
+mccompile(instr)
+{
+	set_termtitle("Compiling \"" + instr + "\"");
+
+	instr_cpp = instr + ".cpp";
+	instr_mc = instr + ".instr";
+	instr_out = instr + ".out";
+
+	print("="*80);
+	print(BLUE + "Compiling McStas -> C/C++..." + NOCOLOR);
+	output("Language: "); if(use_cpp) output("C++"); else output("C");
+	if(use_cpp_opt) output(", using optimisations.\n"); else output(".\n");
+
+	#flags = "--verbose -t";
+	flags = "-t";
+	status = exec("mcstas " + flags + " -o " + instr_cpp + " " + instr_mc);
+
+	print("\n");
+	if(status)
+		print(GREEN + "Compiling '" + instr_mc 
+				+ "' to '" + instr_cpp + "' SUCCEEDED." + NOCOLOR);
+	else
+	{
+		print(RED + "Compiling '" + instr_mc 
+				+ "' to '" + instr_cpp + "' FAILED." + NOCOLOR);
+		return 0;
+	}
+	print("="*80);
+	print("\n");
+
+
+
+	cc = "gcc";
+	#cc = "clang";
+	print("="*80);
+	print(BLUE + "Compiling C/C++ -> native using " + cc + "..." + NOCOLOR);
+	
+	if(use_cpp)
+		cc_lang = "-xc++ -lstdc++ -std=gnu++11 -fpermissive -w -undef__STRICT_ANSI__ -DHAVE_STRCASESTR";
+	else
+		cc_lang = "-xc";
+	cc_flags = "-g -lm";
+	if(use_cpp_opt)
+		cc_flags += " -O2 -march=native";
+	status = exec(cc + " " + cc_flags + " " + cc_lang + " " + "-o " + instr_out + " " + instr_cpp);
+
+	print("\n");
+	if(status)
+		print(GREEN + "Compiling '" + instr_cpp 
+			+ "' to '" + instr_out + "' SUCCEEDED." + NOCOLOR);
+	else
+	{
+		print(RED + "Compiling '" + instr_cpp 
+			+ "' to '" + instr_out + "' FAILED." + NOCOLOR);
+		return 0;
+	}
+
+	if(use_cpp_opt)
+		exec("strip " + instr_out);
+
+	print("="*80);
+	print("\n");
+
+	return 1;
+}
+
+update_simcount(do_inc)
+{
+	begin_critical(mcmutex);
+		if(do_inc)
+			finishedsims = finishedsims + 1;
+
+		percentage = int(real(finishedsims) / real(totalsimcount) * 100.);
+		set_termtitle(finishedsims + " of " + totalsimcount + 
+			" (" + percentage + "%) simulations finished");
+	end_critical(mcmutex);
+}
+
+mcrun(instr, num_neutr, dir, simparams)
+{
+	# set_termtitle("Running \"" + instr + "\ in " + dir);
+	update_simcount(0);
+
+	instr_out = instr + ".out";
+	opts = "-n " + num_neutr + " -d " + dir;
+
+	#print("="*80);
+	print(BLUE + "Running simulation with " + num_neutr + " neutrons in dir '" + dir + "'" + NOCOLOR);
+
+	exec("rm -rf " + dir);
+	status = exec("./" + instr_out + " " + opts + " " + simparams);
+	if(not status)
+		print(RED + "Running '" + instr_out + "' in dir '" + dir + "' FAILED." + NOCOLOR);
+	else
+		print(GREEN + "Running '" + instr_out + "' in dir '" + dir + "' SUCCEEDED." + NOCOLOR);
+
+	set_termtitle("Simulation \"" + instr + "\" finished");
+
+	update_simcount(1);
+	return status; 
+}

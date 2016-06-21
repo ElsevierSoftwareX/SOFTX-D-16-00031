@@ -1,0 +1,112 @@
+#!./hermelin
+
+get_atten(a,b,c, vol_uc, atoms_per_uc, sig_a, sig_coh, sig_inc, lam, len)
+{
+	lam = lam * 1e-10;			# m
+
+	a = a*1e-8;				# cm
+	b = b*1e-8;
+	c = c*1e-8;
+	vol_uc = vol_uc * 1e-8^3.;		# cm^3
+
+	sig_coh = sig_coh * 1e-24;		# cm^2
+	sig_inc = sig_inc * 1e-24;
+	sig_a = sig_a * 1e-24;
+
+	v = hbar*2.*pi / (lam*m_n) * 100.;
+	print("Neutron velocity: " + v/100. + " m/s");
+	v0 = 220000; 				# cm / s
+	Sig_a = sig_a * atoms_per_uc / vol_uc;	# 1/cm
+	Sig_a = Sig_a * v0/v;
+
+	Sig_coh = sig_coh * atoms_per_uc / vol_uc;
+	Sig_inc = sig_inc * atoms_per_uc / vol_uc;
+
+	Sig = Sig_a + Sig_coh + Sig_inc;
+
+	print();
+	print("Macroscopic absorption cross-section: " + Sig_a + " 1/cm");
+	print("Macroscopic incoherent cross-section: " + Sig_inc + " 1/cm");
+	print("Macroscopic coherent cross-section: " + Sig_coh + " 1/cm");
+	print("Macroscopic total cross-section: " + Sig + " 1/cm");
+
+	print();
+	print("Mean free path: " + 1./Sig + " cm");
+
+	return exp(-Sig*len);
+}
+
+get_vol_uc(a,b,c, alpha,beta,gamma)
+{
+	dSG = sin(gamma/180.*pi);
+	dCG = cos(gamma/180.*pi);
+	dCA = cos(alpha/180.*pi);
+	dCB = cos(beta/180.*pi);
+
+	dCA2 = dCA*dCA;
+	dCB2 = dCB*dCB;
+	dCG2 = dCG*dCG;
+
+	dVol =a*b*c*sqrt(1.- dCA2 - dCB2 - dCG2 + 2.*dCA*dCB*dCG);
+
+	#if(isinf(dVol) || isnan(dVol))
+	#	return 0.;
+
+	veca = vec(3);
+	vecb = vec(3);
+	vecc = vec(3);
+
+	veca[0] = a;
+	veca[1] = 0.;
+	veca[2] = 0.;
+
+	vecb[0] = b*dCG;
+	vecb[1] = b*dSG;
+	vecb[2] = 0.;
+
+	vecc[0] = c*dCB;
+	vecc[1] = c*(dCA - dCB*dCG) / dSG;
+	vecc[2] = dVol / (a*b*dSG);
+
+	return det([veca, vecb, vecc]);
+}
+
+main()
+{
+	# numerical values from: McStas -> Al.lau 
+	print("Unit Cell");
+	print("-"*80);
+	a = real(input("a (A) = "));			# A
+	b = real(input("b (A) = "));
+	c = real(input("c (A) = "));
+
+	alpha = real(input("alpha (deg) = "));
+	beta = real(input("beta (deg) = "));
+	gamma = real(input("gamma (deg) = "));
+
+	atoms_per_uc = real(input("Atoms per unit cell: "));
+	vol_uc = get_vol_uc(a,b,c, alpha,beta,gamma);	# cm^3
+	print("Unit cell volume: " + vol_uc + " A^3");
+
+
+	print();
+	print("Cross Sections");
+	print("-"*80);
+
+	sig_a = real(input("sig_a (barn) = "));		# barn
+	sig_coh = real(input("sig_coh (barn) = "));
+	sig_inc = real(input("sig_inc (barn) = "));
+
+
+	print();
+	print("Neutron properties");
+	print("-"*80);
+
+	lam = real(input("lambda (A): "));		# m
+
+	lens = linspace(0., 50., 64);
+	attens = get_atten(a,b,c, vol_uc, atoms_per_uc, sig_a, sig_coh, sig_inc, lam, lens);
+
+	plot(lens, attens, 
+		["xlabel":"Length (cm)", "ylabel":"Intensity", "style":"line"]);
+}

@@ -1,0 +1,50 @@
+#!./hermelin
+# Plotting
+
+mcplot2d(file)
+{
+	fulldat = loadtxt(file);
+	numcols = length(fulldat);
+
+	params = map();
+	if(typeof(fulldat[-1]) == "map")
+	{
+		params = fulldat[-1];
+		numcols -= 1;
+	}
+
+	dat = fulldat[0:numcols];
+
+	dat = trans(dat);
+	numlines = length(dat)/3;
+	dat = dat[0:numlines];
+
+	params["term"] = "wxt";
+	plot2d(dat, params);
+}
+
+mcplot(file)
+{
+	dat = loadtxt(file);
+	params = map();
+	params["term"] = "wxt";
+
+	plot(dat[0],dat[1],dat[2],dat[-1]+params);
+}
+
+
+main(args)
+{
+	if(length(args) < 3)
+	{
+		print("Usage: \n\t" + args[0] + " -1d/-2d <file.dat>\n");
+		return -1;
+	}
+
+	if(args[1] == "-2d")
+		mcplot2d(args[2]);
+	else if(args[1] == "-1d")
+		mcplot(args[2]);
+
+	return 0;
+}

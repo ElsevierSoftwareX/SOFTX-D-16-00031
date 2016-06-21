@@ -1,0 +1,177 @@
+#!./hermelin
+#
+# Calculate Bose factors
+#
+
+module_init()
+{
+	global k_B_meVperK = 1000. * k_B_eVperK;
+}
+
+
+bose_n(T, E)
+{
+	n = 1. / (exp(E / (k_B_meVperK * T)) - 1.);
+	return n;
+}
+
+bose_nplus1(T, E)
+{
+	n1 = bose_n(T, E) + 1.;
+	return n1;
+}
+
+bose_both(T, Es)
+{
+	if(typeof(Es) == "vector")
+	{
+		facs = vec(vec_size(Es));
+
+		for(E : Es)
+		{
+			iter = cur_iter(E);
+
+			if(E >= 0.)
+				facs[iter] = bose_nplus1(T, E);
+			else
+				facs[iter] = bose_n(T, -E);
+		}
+
+		return facs;
+	}
+	else
+	{
+		if(Es >= 0.)
+			return bose_nplus1(T, Es);
+		else
+			return bose_n(T, -Es);
+	}
+}
+
+# S(-Q, -om) / S(Q, om)
+boltz(T, E)
+{
+	return exp(-E / (k_B_eVperK * T));
+}
+
+
+lorentzian(E, E0, gamma, amp)
+{
+	hwhm = 0.5 * gamma;
+	return 1./pi * hwhm / ((E-E0)^2. + hwhm^2.) * amp;
+}
+
+gauss(E, E0, sigma, amp)
+{
+	return amp*exp(-((E-E0)/(sqrt(2.)*sigma))^2);
+}
+
+
+
+usage(app)
+{
+	print("\nBose factor calculation\n\nUsage: e.g. " + app + " T=25 Emin=0.1 Emax=5 show_peaks");
+	print("\tT in K\n\tEmin in meV\n\tEmax in meV\n\tE0 in meV\n\tsigma in meV\n\tsigma_inc in meV\n");
+}
+
+
+main(args)
+{
+	if(vec_size(args) leq 1)
+	{
+		usage(args[0]);
+		return -1;
+	}
+
+	Emin = 0.1;
+	Emax = 5.;
+	show_peaks = 0;
+	show_bose = 1;
+
+	E0 = 1.;
+	back = 0.;
+	sigma = 0.2;
+	sigma_inc = 0.2;
+
+
+	for(arg : args)
+	{
+		if(trim(arg) eq "show_peaks")
+		{
+			show_peaks = 1;
+			continue;
+		}
+		if(trim(arg) eq "no_bose")
+		{
+			show_bose = 0;
+			continue;
+		}
+
+		arg_split = trim(split(arg, "="));
+		register_var(arg_split[0], real(arg_split[1]));
+	}
+	if(not has_var("T"))
+	{
+		usage(args[0]);
+		print("Error: No temperature T given.");
+		return -1;
+	}
+
+	strT = "T = " + T + "K";
+
+
+	E = linspace(Emin, Emax, 128);
+	b_n = bose_n(T, E);
+	b_n1 = bose_nplus1(T, E);
+
+	rel = b_n1 / b_n;
+
+	if(show_bose)
+	{
+		plot([[E, b_n, ["style":"line", "legend":"<n>"]], 
+			[E, b_n1, ["style":"line", "legend":"<n+1>"]]
+			],
+
+			["title" : "Bose occupation factors for " + strT, 
+			"xlabel" : "E (meV)", 
+			"ylabel" : "Occupation", 
+			"window" : 0]);
+
+		plot(E, rel,
+
+			["xlabel" : "E (meV)", 
+			"ylabel" : "<n+1> / <n>", 
+			"style" : "line",
+			"title" : "<n+1> / <n> for " + strT, 
+			"window" : 1]);
+	}
+
+	if(show_peaks)
+	{
+		E = linspace(-Emax, Emax, 256);
+		amp = abs(bose_both(T, E) * E);
+
+		elast = gauss(E, 0., sigma_inc, amp) + back;
+#		elast = lorentzian(E, 0., sigma_inc, amp) + back;
+		plot(E, elast, 
+			["style" : "line", 
+			"xlabel" : "E (meV)", 
+			"ylabel" : "Intensity", 
+			"title" : "Elastic peak, sigma = " + str(sigma_inc) + " meV",
+			"window" : 2]);
+
+
+		inelast = gauss(E, E0, sigma, amp) + gauss(E, -E0, sigma, amp) + back;
+#		inelast = lorentzian(E, E0, sigma, amp) 
+#				+ lorentzian(E, -E0, sigma, amp) + back;
+		plot(E, inelast, 
+			["style" : "line", 
+			"xlabel" : "E (meV)", 
+			"ylabel" : "Intensity", 
+			"title" : "Inelastic peaks, sigma = " + str(sigma) + " meV, E0 = " + str(E0) + " meV",
+			"window" : 3]);
+
+	}
+
+	return 0;
+}

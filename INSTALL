@@ -1,0 +1,42 @@
+Preparations before compilation
+-------------------------------
+
+
+Install (developer versions of) all required libraries either from your
+system's package manager or directly from the given URLs:
+	* Boost: http://www.boost.org
+	* Qt 4: http://www.qt.io
+	* Qwt 6: http://qwt.sourceforge.net
+	* Clipper: http://www.ysbl.york.ac.uk/~cowtan/clipper/
+
+Set up other external dependencies:
+	* ./setup_externals.sh
+
+		! Please note the on-screen messages as some files need to be downloaded manually !
+		These files are needed for generating tables of physical constants with
+		the program "gentab" which is automatically called during the make process,
+		but can also be called manually.
+
+
+===============================================================================
+
+
+Building Takin
+--------------
+
+
+Takin has to be compiled with a fully C++11 compliant compiler, e.g.:
+	* GCC version 4.8 or above
+	* Clang
+
+Make using CMake:
+	* mkdir build
+	* cd build
+	* cmake ..
+	* make
+	* optional: make install (as root)
+
+
+Run program with
+	* takin (main GUI)
+	* convofit (convolution fitter)

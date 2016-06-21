@@ -1,0 +1,47 @@
+get_atten(a,b,c, vol_uc, atoms_per_uc, sig_a, sig_coh, sig_inc, lam, len)
+{
+	v = hbar*2.*pi / (lam*m_n) * 100.;
+	print("Neutron velocity: " + v/100. + " m/s");
+	v0 = 220000; 				# cm / s
+	Sig_a = sig_a * atoms_per_uc / vol_uc;	# 1/cm
+	Sig_a = Sig_a * v0/v;
+
+	Sig_coh = sig_coh * atoms_per_uc / vol_uc;
+	Sig_inc = sig_inc * atoms_per_uc / vol_uc;
+
+	Sig = Sig_a + Sig_coh + Sig_inc;
+
+	print("Macroscopic absorption cross-section: " + Sig_a + " 1/cm");
+	print("Macroscopic incoherent cross-section: " + Sig_inc + " 1/cm");
+	print("Macroscopic coherent cross-section: " + Sig_coh + " 1/cm");
+	print("Macroscopic total cross-section: " + Sig + " 1/cm");
+
+	print("Mean free path: " + 1./Sig + " cm");
+
+	return exp(-Sig*len);
+}
+
+
+main()
+{
+	# numerical values from: McStas -> Al.lau 
+	a = 4.04932e-8;				# cm
+	b = a;
+	c = a;					# cm
+
+	sig_a = 0.231e-24;			# cm^2
+	sig_coh = 1.495e-24;
+	sig_inc = 0.0082e-24;
+	sig = sig_a + sig_coh + sig_inc;
+
+	atoms_per_uc = 4.;
+	vol_uc = a*b*c;				# cm^3
+
+	lam = 4.5e-10;				# m
+
+	lens = linspace(0., 50., 64);
+	attens = get_atten(a,b,c, vol_uc, atoms_per_uc, sig_a, sig_coh, sig_inc, lam, lens);
+
+	plot(lens, attens, 
+		["xlabel":"Length (cm)", "ylabel":"Intensity", "style":"line"]);
+}

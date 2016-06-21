@@ -1,0 +1,941 @@
+#
+# Fitting routines
+# @author tw
+#
+
+module_init()
+{
+	import("apps/bose.scr");
+
+
+	global hwhm2sigma = 1./(sqrt(2.*log(2.)));
+	global sigma2hwhm = 1./hwhm2sigma;
+	global fit_dbg = 1;
+
+	global kB = k_B_eVperK*1000.;
+	
+	global gaussmodel = "gauss_model";
+	global doublegaussmodel = "doublegauss_model";
+	global triplegaussmodel = "triplegauss_model";
+	global quadgaussmodel = "quadgauss_model";
+	global pentgaussmodel = "pentgauss_model";
+	global hexagaussmodel = "hexagauss_model";
+	global multigaussmodel = "multigauss_model";
+	global voigtmodel = "voigt_model";
+	global doublevoigtmodel = "doublevoigt_model";
+	global lorentzianmodel = "lorentzian_model";
+	global dhomodel = "DHO_model";
+
+	global curT = 300.;
+}
+
+
+# -----------------------------------------------------------------------------
+# multi gaussian
+
+map_to_vec(themap, thekeys)
+{
+	v = vec(length(themap));
+	for(key : thekeys)
+	{
+		#print(cur_iter(key));
+		v[cur_iter(key)] = themap[key];
+	}
+
+	return v;
+}
+
+# params: x0_0, sigma_0, amp_0, x0_1, sigma_1, amp_1, ..., offs
+multigauss_model(x, params)
+{
+	numgauss = (length(params)-1) / 3;
+
+	x0s = vec(numgauss);
+	sigmas = vec(numgauss);
+	amps = vec(numgauss);
+
+	for(igauss=0; igauss<numgauss; igauss+=1)
+	{
+		x0s[igauss] = params[igauss*3 + 0];
+		sigmas[igauss] = params[igauss*3 + 1];
+		amps[igauss] = params[igauss*3 + 2];
+	}
+
+	offs = params[-1];
+
+
+	y = offs;
+
+	for(i=0; i<numgauss; i+=1)
+	{
+		x0 = x0s[i];
+		sigma = sigmas[i];
+		amp = amps[i];
+
+		y += amp * exp(-0.5 * ((x-x0) / sigma)^2.);
+	}
+
+	return y;
+}
+
+fit_multigauss_manual(x, y, yerr, peaks_x, peaks_size, peaks_width)
+{
+	numgauss = length(peaks_x);
+	param_vec = vec(numgauss*3 + 1);
+
+	hints = vec(numgauss*3 + 1);
+	hints_err = vec(numgauss*3 + 1);
+
+	lowerlims = map();
+	upperlims = map();
+
+        yrange = max(y)-min(y);
+
+	for(iGauss=0; iGauss<numgauss; iGauss+=1)
+	{
+		amp_name = "amp_" + str(iGauss);
+		sig_name = "sigma_" + str(iGauss);
+		x0_name = "x0_" + str(iGauss);
+
+		param_vec[iGauss*3 + 0] = x0_name;
+		param_vec[iGauss*3 + 1] = sig_name;
+		param_vec[iGauss*3 + 2] = amp_name;
+
+		hints[iGauss*3 + 0] = peaks_x[iGauss];
+		hints[iGauss*3 + 1] = peaks_width[iGauss];
+		hints[iGauss*3 + 2] = peaks_size[iGauss];
+
+		hints_err[iGauss*3 + 0] = hints[iGauss*3 + 0] / 10.;
+		hints_err[iGauss*3 + 1] = hints[iGauss*3 + 1] / 10.;
+		hints_err[iGauss*3 + 2] = hints[iGauss*3 + 2] / 10.;
+
+		lowerlims[amp_name] = min(y);
+		upperlims[amp_name] = max(y);
+		lowerlims[sig_name] = 0.;
+	}
+	param_vec[-1] = "offs";
+	lowerlims["offs"] = min(y);
+	upperlims["offs"] = max(y);
+	hints[-1] = min(y);
+	hints_err[-1] = yrange/10.;
+
+	#print("Multigauss parameters: " + str(param_vec));
+
+	for(thisyerr : yerr)
+	{
+			if(thisyerr eq 0.)
+					thisyerr = yrange*0.001;
+	}
+
+	fitsteps = vec();
+	for(iStep=0; iStep<numgauss; iStep+=1)
+	{
+		before = iStep;
+		remaining = numgauss-iStep-1;
+		fitsteps[length(fitsteps)] = "fff"*before + "frr" + "fff"*remaining + "f";
+	}
+
+	for(iStep=0; iStep<numgauss; iStep+=1)
+	{
+			before = iStep;
+			remaining = numgauss-iStep-1;
+			fitsteps[length(fitsteps)] = "fff"*before + "rff" + "fff"*remaining + "r";
+	}
+
+	fitsteps[length(fitsteps)] = "x"*(numgauss*3 + 1);
+
+	fitparams = fit(multigaussmodel, x, y, yerr,
+					[
+						"use_param_vec" : param_vec,
+						"hints":hints, "hints_errors":hints_err,
+						"lower_limits":lowerlims, "upper_limits":upperlims,
+						"debug" : fit_dbg,
+						"steps":fitsteps
+					]
+					);
+
+	return [fitparams, param_vec];
+}
+
+
+
+# -----------------------------------------------------------------------------
+# double gaussian
+doublegauss_model(x, x0_0, sigma_0, amp_0, x0_1, sigma_1, amp_1, offs)
+{
+	return amp_0 * exp(-0.5 * ((x-x0_0) / sigma_0)^2.) 
+		+ amp_1 * exp(-0.5 * ((x-x0_1) / sigma_1)^2.) 
+		+ offs;
+}
+
+doublevoigt_model(x, x0_0, sigma_0, gamma_0, amp_0, x0_1, sigma_1, gamma_1, amp_1, offs)
+{
+        z0 = complex(x-x0_0, gamma_0) / (sigma_0 * sqrt(2.));
+        pk0 = amp_0 * real(faddeeva(z0)) / (sigma_0 * sqrt(2.*pi));
+
+        z1 = complex(x-x0_1, gamma_1) / (sigma_1 * sqrt(2.));
+        pk1 = amp_1 * real(faddeeva(z1)) / (sigma_1 * sqrt(2.*pi));
+
+	return pk0 + pk1 + offs;
+}
+
+fit_doublegauss_manual_singlestep(x, y, yerr, peaks_x, peaks_size, peaks_width, offs, stepstrs)
+{
+	idx_lt = 0;
+	idx_rt = 1;
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[idx_lt], peaks_width[idx_lt], peaks_size[idx_lt], 
+		peaks_x[idx_rt], peaks_width[idx_rt], peaks_size[idx_rt],
+		offs];
+
+	hints_err = [peaks_x[idx_lt]/10., peaks_width[idx_lt]/10., peaks_size[idx_lt]/10., 
+		peaks_x[idx_rt]/10., peaks_width[idx_rt]/10., peaks_size[idx_rt]/10.,
+		offs/10.];
+
+	#lowerlims = ["amp_0":min(y), "amp_1":min(y), "sigma_0":0., "sigma_1":0., "offs":min(y)];
+	#upperlims = ["amp_0":max(y), "amp_1":max(y), "offs":max(y)];
+
+	fitparams = fit(doublegaussmodel, x, y, yerr, 
+			[
+				"hints" : hints, "hints_errors" : hints_err,
+			#	"lower_limits" : lowerlims, "upper_limits" : upperlims,
+			#	"fixed" : ["offs"], 
+				"debug" : fit_dbg,
+				"steps" : stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+fit_doublevoigt_manual_singlestep(x, y, yerr, peaks_x, peaks_size, instr_width, peaks_width, offs, stepstrs)
+{
+	idx_lt = 0;
+	idx_rt = 1;
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[idx_lt], instr_width[idx_lt], peaks_width[idx_lt], peaks_size[idx_lt], 
+		peaks_x[idx_rt], instr_width[idx_rt], peaks_width[idx_rt], peaks_size[idx_rt],
+		offs];
+
+	hints_err = [peaks_x[idx_lt]/10., instr_width[idx_lt]/10., peaks_width[idx_lt]/10., peaks_size[idx_lt]/10., 
+		peaks_x[idx_rt]/10., instr_width[idx_rt]/10., peaks_width[idx_rt]/10., peaks_size[idx_rt]/10.,
+		offs/10.];
+
+	lowerlims = ["amp_0":0., "amp_1":0., 
+		"sigma_0":0., "sigma_1":0., 
+		"gamma_0":0., "gamma_1":0., 
+		"offs":0.];
+
+	fitparams = fit(doublevoigtmodel, x, y, yerr, 
+			[
+				"hints" : hints, "hints_errors" : hints_err,
+				"lower_limits" : lowerlims, 
+				"debug" : fit_dbg,
+				"steps" : stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+fit_doublegauss_manual2(x, y, yerr, E0, peaks_x, peaks_size, peaks_width)
+{
+	has_left = 0;
+	has_right = 0;
+	idx_lt = 0;
+	idx_rt = 1;
+	for(px : peaks_x)
+	{
+		if(has_left eq 0 and px less E0)
+		{
+			idx_lt = cur_iter(px);
+			has_left = 1;
+		}
+
+		if(has_right eq 0 and px greater E0)
+		{
+			idx_rt = cur_iter(px);
+			has_right = 1;
+		}
+	}
+
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[idx_lt], peaks_width[idx_lt], peaks_size[idx_lt], 
+		peaks_x[idx_rt], peaks_width[idx_rt], peaks_size[idx_rt],
+		min(y)];
+
+	hints_err = [peaks_x[idx_lt]/10., peaks_width[idx_lt]/10., peaks_size[idx_lt]/10., 
+		peaks_x[idx_rt]/10., peaks_width[idx_rt]/10., peaks_size[idx_rt]/10.,
+		yrange/10.];
+
+	#x_ = linspace(0., 10., 64);
+	#y_ = doublegauss_model(x_, peaks_x[idx_lt], peaks_width[idx_lt], peaks_size[idx_lt], peaks_x[idx_rt], peaks_width[idx_rt], peaks_size[idx_rt], 0.);
+	#plot(x_, y_, ["style":"line"]);
+
+	#print("Hints: " + str(hints));
+
+#	lowerlims = ["x0_0":peaks_x[idx_lt]*0.8., "x0_1":peaks_x[idx_rt]*0.8., "amp_0":peaks_size[idx_lt]*0.8, "amp_1":peaks_size[idx_rt]*0.8., "sigma_0":peaks_width[idx_lt]*0.8, "sigma_1":peaks_width[idx_rt]*0.8, "offs":min(y)];
+#	upperlims = ["x0_0":peaks_x[idx_lt]*1.2, "x0_1":peaks_x[idx_rt]*1.2., "amp_0":peaks_size[idx_lt]*1.2., "amp_1":peaks_size[idx_rt]*1.2., "sigma_0":peaks_width[idx_lt]*1.2, "sigma_1":peaks_width[idx_rt]*1.2, "offs":max(y)];
+
+	lowerlims = ["amp_0":min(y), "amp_1":min(y), "sigma_0":0., "sigma_1":0., "offs":min(y)];
+	upperlims = ["amp_0":max(y), "amp_1":max(y), "offs":max(y)];
+
+	fitparams = fit(doublegaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+				"lower_limits":lowerlims, "upper_limits":upperlims,
+				"fixed":["offs"], "debug" : fit_dbg,
+				"steps":["frrffff", "ffffrrf", "rfffffr", "fffrffr", "xxxxxxx"]
+			]
+			);
+
+	return fitparams;
+}
+
+fit_doublegauss_manual(x, y, yerr, peaks_x, peaks_size, peaks_width)
+{
+	x0 = min([peaks_x[0], peaks_x[1]]);
+	x1 = max([peaks_x[0], peaks_x[1]]);
+	E0 = x0 + (x1-x0)/2.;
+
+	return fit_doublegauss_manual2(x, y, yerr, E0, peaks_x, peaks_size, peaks_width);
+}
+
+# two peaks left and right of E0
+fit_doublegauss(x, y, yerr, E0)
+{
+	peaks = find_peaks(x, y);
+	#print("Peaks: " + str(peaks));
+
+	peaks_x = peaks[0];
+	peaks_size = peaks[1];
+	peaks_width = peaks[2] * hwhm2sigma;
+
+	if(length(peaks_x) less 2 or length(peaks_size) less 2 or length(peaks_width) less 2)
+	{
+		print("Error: Prefitter didn't find enough peaks.");
+		return 0;
+	}
+
+        x0 = min([peaks_x[0], peaks_x[1]]);
+        x1 = max([peaks_x[0], peaks_x[1]]);
+        return fit_doublegauss_manual2(x, y, yerr, E0, peaks_x, peaks_size, peaks_width);
+}
+# -----------------------------------------------------------------------------
+
+
+
+
+# -----------------------------------------------------------------------------
+# triple gaussian
+triplegauss_model(x, x0_0, sigma_0, amp_0, x0_1, sigma_1, amp_1, x0_2, sigma_2, amp_2, offs)
+{
+	return amp_0 * exp(-0.5 * ((x-x0_0) / sigma_0)^2.) 
+		+ amp_1 * exp(-0.5 * ((x-x0_1) / sigma_1)^2.) 
+		+ amp_2 * exp(-0.5 * ((x-x0_2) / sigma_2)^2.)
+		+ offs;
+}
+
+fit_triplegauss_manual_singlestep(x, y, yerr, peaks_x, peaks_size, peaks_width, offs, stepstrs)
+{
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[0], peaks_width[0], peaks_size[0], 
+			peaks_x[1], peaks_width[1], peaks_size[1],
+			peaks_x[2], peaks_width[2], peaks_size[2],
+			offs];
+
+	hints_err = [peaks_x[0]/10., peaks_width[0]/10., peaks_size[0]/10., 
+				peaks_x[1]/10., peaks_width[1]/10., peaks_size[1]/10.,
+			offs/10.];
+
+	fitparams = fit(triplegaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# quadruple gaussian
+quadgauss_model(x, 
+	x0_0, sigma_0, amp_0, 
+	x0_1, sigma_1, amp_1, 
+	x0_2, sigma_2, amp_2, 
+	x0_3, sigma_3, amp_3, 
+	offs)
+{
+	return amp_0 * exp(-0.5 * ((x-x0_0) / sigma_0)^2.) 
+		+ amp_1 * exp(-0.5 * ((x-x0_1) / sigma_1)^2.) 
+		+ amp_2 * exp(-0.5 * ((x-x0_2) / sigma_2)^2.)
+		+ amp_3 * exp(-0.5 * ((x-x0_3) / sigma_3)^2.)
+		+ offs;
+}
+
+fit_quadgauss_manual_singlestep(x, y, yerr, peaks_x, peaks_size, peaks_width, offs, stepstrs)
+{
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[0], peaks_width[0], peaks_size[0], 
+			peaks_x[1], peaks_width[1], peaks_size[1],
+			peaks_x[2], peaks_width[2], peaks_size[2],
+			peaks_x[3], peaks_width[3], peaks_size[3],
+			offs];
+
+	hints_err = [peaks_x[0]/10., peaks_width[0]/10., peaks_size[0]/10., 
+				peaks_x[1]/10., peaks_width[1]/10., peaks_size[1]/10.,
+				peaks_x[2]/10., peaks_width[2]/10., peaks_size[2]/10.,
+				peaks_x[3]/10., peaks_width[3]/10., peaks_size[3]/10.,
+			offs/10.];
+
+	fitparams = fit(quadgaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# quintuple gaussian
+pentgauss_model(x, 
+	x0_0, sigma_0, amp_0, 
+	x0_1, sigma_1, amp_1, 
+	x0_2, sigma_2, amp_2, 
+	x0_3, sigma_3, amp_3, 
+	x0_4, sigma_4, amp_4, 
+	offs)
+{
+	return amp_0 * exp(-0.5 * ((x-x0_0) / sigma_0)^2.) 
+		+ amp_1 * exp(-0.5 * ((x-x0_1) / sigma_1)^2.) 
+		+ amp_2 * exp(-0.5 * ((x-x0_2) / sigma_2)^2.)
+		+ amp_3 * exp(-0.5 * ((x-x0_3) / sigma_3)^2.)
+		+ amp_4 * exp(-0.5 * ((x-x0_4) / sigma_4)^2.)
+		+ offs;
+}
+
+fit_pentgauss_manual_singlestep(x, y, yerr, peaks_x, peaks_size, peaks_width, offs, stepstrs)
+{
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[0], peaks_width[0], peaks_size[0], 
+			peaks_x[1], peaks_width[1], peaks_size[1],
+			peaks_x[2], peaks_width[2], peaks_size[2],
+			peaks_x[3], peaks_width[3], peaks_size[3],
+			peaks_x[4], peaks_width[4], peaks_size[4],
+			offs];
+
+	hints_err = [peaks_x[0]/10., peaks_width[0]/10., peaks_size[0]/10., 
+				peaks_x[1]/10., peaks_width[1]/10., peaks_size[1]/10.,
+				peaks_x[2]/10., peaks_width[2]/10., peaks_size[2]/10.,
+				peaks_x[3]/10., peaks_width[3]/10., peaks_size[3]/10.,
+				peaks_x[4]/10., peaks_width[4]/10., peaks_size[4]/10.,
+			offs/10.];
+
+	fitparams = fit(pentgaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+# -----------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------
+# sextuple gaussian
+hexagauss_model(x, 
+	x0_0, sigma_0, amp_0, 
+	x0_1, sigma_1, amp_1, 
+	x0_2, sigma_2, amp_2, 
+	x0_3, sigma_3, amp_3, 
+	x0_4, sigma_4, amp_4, 
+	x0_5, sigma_5, amp_5, 
+	offs)
+{
+	return amp_0 * exp(-0.5 * ((x-x0_0) / sigma_0)^2.) 
+		+ amp_1 * exp(-0.5 * ((x-x0_1) / sigma_1)^2.) 
+		+ amp_2 * exp(-0.5 * ((x-x0_2) / sigma_2)^2.)
+		+ amp_3 * exp(-0.5 * ((x-x0_3) / sigma_3)^2.)
+		+ amp_4 * exp(-0.5 * ((x-x0_4) / sigma_4)^2.)
+		+ amp_5 * exp(-0.5 * ((x-x0_5) / sigma_5)^2.)
+		+ offs;
+}
+
+fit_hexagauss_manual_singlestep(x, y, yerr, peaks_x, peaks_size, peaks_width, offs, stepstrs)
+{
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peaks_x[0], peaks_width[0], peaks_size[0], 
+			peaks_x[1], peaks_width[1], peaks_size[1],
+			peaks_x[2], peaks_width[2], peaks_size[2],
+			peaks_x[3], peaks_width[3], peaks_size[3],
+			peaks_x[4], peaks_width[4], peaks_size[4],
+			peaks_x[5], peaks_width[5], peaks_size[5],
+			offs];
+
+	hints_err = [peaks_x[0]/10., peaks_width[0]/10., peaks_size[0]/10., 
+				peaks_x[1]/10., peaks_width[1]/10., peaks_size[1]/10.,
+				peaks_x[2]/10., peaks_width[2]/10., peaks_size[2]/10.,
+				peaks_x[3]/10., peaks_width[3]/10., peaks_size[3]/10.,
+				peaks_x[4]/10., peaks_width[4]/10., peaks_size[4]/10.,
+				peaks_x[5]/10., peaks_width[5]/10., peaks_size[5]/10.,
+			offs/10.];
+
+	fitparams = fit(hexagaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# single gaussian
+gauss_model(x, x0, sigma, amp, offs) { return amp * exp(-0.5 * ((x-x0) / sigma)^2.) + offs; }
+gauss_area(sigma, amp) { return amp*sigma*sqrt(2.*pi); }
+gauss_area_err(sig, amp, dsig, damp)
+{
+	return sqrt((amp*dsig*sqrt(2.*pi))^2. 
+		+ (damp*sig*sqrt(2.*pi))^2.);
+}
+
+voigt_model(x, x0, sigma, gamma, amp, offs)
+{
+        z = complex(x-x0, gamma) / (sigma * sqrt(2.));
+        return amp * real(faddeeva(z)) / (sigma * sqrt(2.*pi)) + offs;
+}
+
+fit_gauss_manual(x, y, yerr, peak_x, peak_size, peak_width)
+{
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peak_x, peak_width, peak_size, min(y)];
+	hints_err = [peak_x/10., peak_width/10., peak_size/10., yrange/10.];
+
+	lowerlims = ["amp":min(y), "sigma":0., "offs":min(y)];
+	upperlims = ["amp":max(y), "offs":max(y)];
+
+	fitparams = fit(gaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+				"lower_limits":lowerlims, "upper_limits":upperlims,
+				"fixed":["offs"], "debug" : fit_dbg,
+				"steps":["frr f", "rff r", "xxx x"]
+			]
+			);
+
+	return fitparams;
+}
+
+fit_gauss_manual_singlestep(x, y, yerr, peak_x, peak_size, peak_width, offs, stepstrs)
+{
+	if(typeof(peak_x) == "vector") peak_x = peak_x[0];
+	if(typeof(peak_size) == "vector") peak_size = peak_size[0];
+	if(typeof(peak_width) == "vector") peak_width = peak_width[0];
+
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peak_x, peak_width, peak_size, offs];
+	hints_err = [peak_x/10., peak_width/10., peak_size/10., offs/10.];
+
+	fitparams = fit(gaussmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+fit_voigt_manual_singlestep(x, y, yerr, peak_x, peak_size, instr_width, peak_width, offs, stepstrs)
+{
+	if(typeof(peak_x) == "vector") peak_x = peak_x[0];
+	if(typeof(peak_size) == "vector") peak_size = peak_size[0];
+	if(typeof(instr_width) == "vector") instr_width = instr_width[0];
+	if(typeof(peak_width) == "vector") peak_width = peak_width[0];
+
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peak_x, instr_width, peak_width, peak_size, offs];
+	hints_err = [peak_x/5., instr_width/5., peak_width/5., peak_size/5., offs/5.];
+
+	fitparams = fit(voigtmodel, x, y, yerr, 
+			[
+				"hints" : hints, "hints_errors" : hints_err,
+				"lower_limits" : ["sigma":0., "gamma":0., "amp":0., "offs":0.], 
+			#	"upper_limits" : upperlims,
+			#	"fixed" : ["sigma"], 
+				"debug" : fit_dbg,
+				"steps" : stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+fit_gauss(x, y, yerr)
+{
+	peaks = find_peaks(x, y);
+	#print("Peaks: " + str(peaks));
+
+	peaks_x = peaks[0];
+	peaks_size = peaks[1];
+	peaks_width = peaks[2] * hwhm2sigma;
+
+	if(length(peaks_x) less 1 or length(peaks_size) less 1 or length(peaks_width) less 1)
+	{
+		print("Error: Prefitter didn't find enough peaks.");
+		return 0;
+	}
+
+	return fit_gauss_manual(x, y, yerr, peaks_x[0], peaks_size[0], peaks_width[0]);
+}
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# line
+line_model(x, m, b)
+{
+	return m*x + b;
+}
+
+line_model_zero(x, m)
+{
+	return m*x;
+}
+
+
+fit_line(x, y, yerr)
+{
+	m_hint = (y[-1]-y[0]) / (x[-1]-x[0]);
+	b_hint = y[0] - m_hint*x[0];
+	m_hint_err = m_hint/10.;
+	b_hint_err = b_hint/10.;
+
+	fitparams = fit("line_model", x, y, yerr,
+			[
+				"hints" : [m_hint, b_hint], "hints_errors" : [m_hint_err, b_hint_err],
+				"debug" : fit_dbg,
+				"steps" : ["fr", "rf", "xx"]
+			]);
+	return fitparams;
+}
+
+fit_line_zero(x, y, yerr)
+{
+	m_hint = (y[-1]-y[0]) / (x[-1]-x[0]);
+	m_hint_err = m_hint/10.;
+
+	fitparams = fit("line_model_zero", x, y, yerr,
+			[
+				"hints" : [m_hint], "hints_errors" : [m_hint_err],
+				"debug" : fit_dbg
+			]);
+	return fitparams;
+}
+# -----------------------------------------------------------------------------
+
+
+
+
+# -----------------------------------------------------------------------------
+# sine
+sine_model(x, a, f)
+{
+	return a*sin(f*x);
+}
+
+sine_model_2(x, a)
+{
+	return a*sin(x*pi/2.);
+}
+
+fit_sine(x, y, yerr)
+{
+	fitparams = fit("sine_model", x, y, yerr,
+			[
+				"hints" : [1., 1.], "hints_errors" : [0.5, 0.5],
+				"debug" : fit_dbg,
+				"steps" : ["rf", "fr", "xx"]
+			]);
+	return fitparams;
+}
+
+fit_sine_2(x, y, yerr)
+{
+	fitparams = fit("sine_model_2", x, y, yerr,
+			[
+				"hints" : [1.], "hints_errors" : [0.5],
+				"debug" : fit_dbg,
+				"steps" : ["x"]
+			]);
+	return fitparams;
+}
+
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# error function
+
+erf_model(x, a, m, b, x0)
+{
+	return a*erf(m*(x-x0)) + b;
+}
+
+fit_erf(x, y, yerr)
+{
+	miny = min(y);
+	maxy = max(y);
+
+	a_hint = (maxy-miny) / 2.;
+	m_hint = y[-1]-y[0];
+	b_hint = miny + a_hint;
+	x0_hint = (x[-1]-x[0]) / 2.;
+
+	a_hint_err = a_hint/10.;
+	m_hint_err = m_hint/10.;
+	b_hint_err = b_hint/10.;
+	x0_hint_err = x0_hint/10.;
+
+	return fit("erf_model", x, y, yerr,
+			[
+				"hints" : [a_hint, m_hint, b_hint, x0_hint],
+				"hints_errors" : [a_hint_err, m_hint_err, b_hint_err, x0_hint_err],
+
+				"debug" : fit_dbg
+			]);
+}
+
+# -----------------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------------
+# lorentzian
+
+lorentzian_model(E, E0, hwhm, amp, offs)
+{
+	return amp * hwhm^2. / ((E-E0)^2. + hwhm^2. ) + offs;
+}
+
+fit_lorentzian_manual_singlestep(x, y, yerr, peak_x, peak_size, peak_width, offs, stepstrs)
+{
+	if(typeof(peak_x) == "vector") peak_x = peak_x[0];
+	if(typeof(peak_size) == "vector") peak_size = peak_size[0];
+	if(typeof(peak_width) == "vector") peak_width = peak_width[0];
+
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peak_x, peak_width, peak_size, offs];
+	hints_err = [peak_x/10., peak_width/10., peak_size/10., offs/10.];
+
+	fitparams = fit(lorentzianmodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+			#	"lower_limits":lowerlims, "upper_limits":upperlims,
+			#	"fixed":["offs"], 
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+
+
+# -----------------------------------------------------------------------------
+# DHO
+
+# see: B. Fak, B. Dorner, Physica B 234-236 (1997) pp. 1107-1108
+DHO_model(E, T, E0, hwhm, amp, offs)
+{
+	if(E0^2. - hwhm^2. < 0.) return 0.;
+
+	E_bose = bose_both(T, E);
+	return E_bose*amp/(E0*pi) * (hwhm/((E-E0)^2. + hwhm^2.) - hwhm/((E+E0)^2. + hwhm^2.));
+}
+
+fit_DHO_manual_singlestep(x, y, yerr, peak_T, peak_x, peak_size, peak_width, offs, stepstrs)
+{
+	if(typeof(peak_x) == "vector") peak_x = peak_x[0];
+	if(typeof(peak_size) == "vector") peak_size = peak_size[0];
+	if(typeof(peak_width) == "vector") peak_width = peak_width[0];
+	if(typeof(peak_T) == "vector") peak_T = peak_T[0];
+
+	# Minuit doesn't handle errors == 0
+	yrange = max(y)-min(y);
+	for(thisyerr : yerr)
+	{
+		if(thisyerr eq 0.)
+			thisyerr = yrange*0.005;
+	}
+
+	hints = [peak_T, peak_x, peak_width, peak_size, offs];
+	hints_err = [peak_T/10., peak_x/10., peak_width/10., peak_size/10., offs/10.];
+
+	fitparams = fit(dhomodel, x, y, yerr, 
+			[
+				"hints":hints, "hints_errors":hints_err,
+				"debug" : fit_dbg,
+				"steps":stepstrs
+			]
+			);
+
+	return fitparams;
+}
+
+
+
+# -----------------------------------------------------------------------------
+# helpers
+
+
+# creates fitted curve for plotting
+fit_points(fitres, xmin, xmax, numpts=128)
+{
+	fitres_vals = map_vec_to_val(fitres);
+	fitres_errs = map_vec_to_val(fitres, 1);
+
+	x_fine = linspace(xmin, xmax, numpts);
+	fitfkt = fitres["<model>"];
+	fitfktarg0 = get_argnames(fitfkt)[0];
+	y_fit = call(fitfkt, fitres_vals + [fitfktarg0:x_fine]);
+
+	return [x_fine, y_fit];
+}
+
+
+# -----------------------------------------------------------------------------
+
+voigt_model_bose(x, x0, sigma, gamma, amp, offs)
+{
+	return voigt_model(x, x0, sigma, gamma, amp, offs) * bose_both(curT, x);
+}
+
+doublevoigt_model_bose(x, x0_0, sigma_0, gamma_0, amp_0, x0_1, sigma_1, gamma_1, amp_1, offs)
+{
+	return doublevoigt_model(x, x0_0, sigma_0, gamma_0, amp_0, 
+		x0_1, sigma_1, gamma_1, amp_1, offs) 
+			* bose_both(curT, x);
+}
+
+set_bose_fits()
+{
+	voigtmodel = "voigt_model_bose";
+	doublevoigtmodel = "doublevoigt_model_bose";
+}

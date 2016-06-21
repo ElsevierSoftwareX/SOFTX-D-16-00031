@@ -1,0 +1,5 @@
+module_init()
+{
+	global gpl_deg = "{/Symbol \\260}";	# degrees
+	global gpl_pm = "{/Symbol \\261}";	# +-
+}

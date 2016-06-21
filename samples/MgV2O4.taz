@@ -1,0 +1,90 @@
+<taz>
+	<goto_pos>
+		<cki> 1 </cki>
+		<h> 4 </h>
+		<k> 4 </k>
+		<kf> 2.662 </kf>
+		<ki> 2.662 </ki>
+		<l> 0 </l>
+	</goto_pos>
+	<plane>
+		<x0> 1 </x0>
+		<x1> 0 </x1>
+		<x2> 0 </x2>
+		<y0> 0 </y0>
+		<y1> 1 </y1>
+		<y2> 0 </y2>
+	</plane>
+	<real>
+		<analyser_x> -195.7471775 </analyser_x>
+		<analyser_y> 176.4409379 </analyser_y>
+		<detector_x> -253.3275717 </detector_x>
+		<detector_y> 200.7462503 </detector_y>
+		<enable_realQDir> 1 </enable_realQDir>
+		<monochromator_x> 0 </monochromator_x>
+		<monochromator_y> 187.5 </monochromator_y>
+		<pixels_per_cm> 1.25 </pixels_per_cm>
+		<sample_x> -141.0987306 </sample_x>
+		<sample_y> 64.01964437 </sample_y>
+		<source_x> 200 </source_x>
+		<source_y> 187.5 </source_y>
+	</real>
+	<recip>
+		<Gq_x> 448.7989505 </Gq_x>
+		<Gq_y> -448.7989505 </Gq_y>
+		<enable_bz> 1 </enable_bz>
+		<enable_q> 0 </enable_q>
+		<kfQ_x> 448.7989505 </kfQ_x>
+		<kfQ_y> -448.7989505 </kfQ_y>
+		<kiQ_x> 0 </kiQ_x>
+		<kiQ_y> 0 </kiQ_y>
+		<kikf_x> 53.03693412 </kikf_x>
+		<kikf_y> -395.7620164 </kikf_y>
+		<pixels_per_A-1> 150 </pixels_per_A-1>
+		<snap_q> 1 </snap_q>
+	</recip>
+	<sample>
+		<a> 8.4 </a>
+		<a_recip> 0.747998 </a_recip>
+		<alpha> 90 </alpha>
+		<alpha_recip> 90 </alpha_recip>
+		<atoms>
+			<0>
+				<name> Mg </name>
+				<x> 0 </x>
+				<y> 0 </y>
+				<z> 0 </z>
+			</0>
+			<1>
+				<name> V </name>
+				<x> 0.625 </x>
+				<y> 0.625 </y>
+				<z> 0.625 </z>
+			</1>
+			<2>
+				<name> O </name>
+				<x> 0.389 </x>
+				<y> 0.389 </y>
+				<z> 0.389 </z>
+			</2>
+			<num> 3 </num>
+		</atoms>
+		<b> 8.4 </b>
+		<b_recip> 0.747998 </b_recip>
+		<beta> 90 </beta>
+		<beta_recip> 90 </beta_recip>
+		<c> 8.4 </c>
+		<c_recip> 0.747998 </c_recip>
+		<descr>  </descr>
+		<gamma> 90 </gamma>
+		<gamma_recip> 90 </gamma_recip>
+		<spacegroup> Fd-3m </spacegroup>
+	</sample>
+	<tas>
+		<ana_d> 3.355 </ana_d>
+		<mono_d> 3.355 </mono_d>
+		<sense_a> 0 </sense_a>
+		<sense_m> 0 </sense_m>
+		<sense_s> 1 </sense_s>
+	</tas>
+</taz>
